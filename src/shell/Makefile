@@ -1,12 +1,15 @@
 CC = gcc
-CFLAGS = -Wall -W
+CFLAGS = -Wall -W -g
 
 all: mysh
 
-mysh: mysh.o parser.o stringbuilder.o
+mysh: mysh.o
+
+parsertest: parser.o stringbuilder.o
+	$(CC) -o parsertest parser.o stringbuilder.o
 
 clean: 
-	rm -f *.o *~ mysh
+	rm -f *.o *~ mysh parsertest
 
 .PHONY: all clean
 

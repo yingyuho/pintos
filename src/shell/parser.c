@@ -160,6 +160,7 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
       // newline at the terminal... Should be handled properly at the running
       // side, by checking whether ptr->str is null.
       *endidx = i;
+      destroy_stringb(sb);
       return ptr;
     }
   }
@@ -168,7 +169,6 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
   }
 
   while (cmd[i] && (cmd[i] != '|')) {
-    printf("%d\n", i);
     // Continue parsing arguments
     i = parse_token(sb, cmd, i);
     if (sb->curlen == 0) {
@@ -211,6 +211,7 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
   }
 	 
   *endidx = i;
+  destroy_stringb(sb);
   return ptr;
 }
 
@@ -267,7 +268,7 @@ int main() {
 	printf("%s ", base[k]->args[i]);
       printf("\n");
       
-      // Check redirection?
+      // TODO: print the redirections too (I'm feeling lazy)
     }
     else {
       printf("Null command");
@@ -380,9 +381,27 @@ int main() {
   */
 
   // Free things (related to this command)
+  for (k = 0; k < j; ++k) {
+    if (base[k]->str)
+      free(base[k]->str);
+    for (i = 0; i < base[k]->nargs; ++i)
+      free(base[k]->args[i]);
+    if (base[k]->args)
+      free(base[k]->args);
+    for (i = 0; i < base[k]->nins; ++i)
+      free(base[k]->ins[i]);
+    if (base[k]->ins)
+      free(base[k]->ins);
+    for (i = 0; i < base[k]->nouts; ++i)
+      free(base[k]->outs[i]);
+    if (base[k]->outs)
+      free(base[k]->outs);
+    free(base[k]);
+  }
 
   // Loop should end here, and we should deallocate stuff
   
+  free(base);
   free(cmdbuf);
   free(dirbuf);
   free(hostname);
