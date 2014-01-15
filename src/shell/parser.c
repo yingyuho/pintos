@@ -68,7 +68,7 @@ typedef struct node {
 void writetopipe(FILE *f, int fd) {
   // Writes the contents of f to fd
   char c;
-  while (c = getc(f)) {
+  while ((c = getc(f))) { /* Parentheses are to keep the compiler quiet */
     write(fd, &c, 1);
   }
 }
@@ -85,20 +85,15 @@ void writetofile(FILE *f, int fd) {
 // a pipe. Returns NULL if you did something stupid (trying to redirect to
 // something which is not a filename, for example)
 node_t *parsecmd(char *cmd, int startidx, int *endidx) {
-  int i, fdn;
+  int i;
   stringbuilder_t *sb;
-  char *tok;
 
-  node_t *ptr = malloc(sizeof(node_t));
+  node_t *ptr = calloc(1,sizeof(node_t));
+  // I do make the (mostly portable) assumption that NULL is 0 here
 
   // for (i = 0; i < 10; ++i)
   //  for (j = 0; j < 2; ++j)
   //    ptr->fdtable[i][j] = -1;
-
-  ptr->str = NULL;
-  ptr->nins = 0;
-  ptr->nouts = 0;
-  ptr->nargs = 0;
 
   sb = nstringb();
 
@@ -164,6 +159,7 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
       // Empty command with no redirection? I assume the user just typed a
       // newline at the terminal... Should be handled properly at the running
       // side, by checking whether ptr->str is null.
+      *endidx = i;
       return ptr;
     }
   }
@@ -172,10 +168,10 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
   }
 
   while (cmd[i] && (cmd[i] != '|')) {
+    printf("%d\n", i);
     // Continue parsing arguments
-    i = parse_token(sb, cmd, startidx);
+    i = parse_token(sb, cmd, i);
     if (sb->curlen == 0) {
-
       if (cmd[i] == '<') {
 	i = parse_token(sb, cmd, i+1);
 	if (sb->curlen == 0) {
@@ -224,14 +220,9 @@ int main() {
   char *dirbuf;
   char *hostname;
   char *cmdbuf;
-  char *buf;
 
-  char **args;
-  node_t *base;
-  int nargs;
+  node_t **base;
 
-  stringbuilder_t *st;
-  
   int i, j, k;
 
   dirbuf = malloc(PATH_MAX + 1);
@@ -239,7 +230,6 @@ int main() {
   cmdbuf = malloc(1025); // Apparently this should be a kernel parameter;
   // ARG_MAX is above 2 million on my system!
   
-  buf = malloc(1025);
   
   getcwd(dirbuf, PATH_MAX);
   gethostname(hostname, HOST_NAME_MAX);
@@ -255,7 +245,34 @@ int main() {
   // <, >, and |; we can just look at the adjacent characters to determine
   // any variants)
 
-  // TODO: Finish writing the tokenization code (see parsecmd() above)
+  base = malloc(sizeof (node_t*) * 10); // Change later
+  // Tokenize (building the data structure as we go)
+  i = 0;
+  for (j = 0; cmdbuf[i]; ++j) {
+    base[j] = parsecmd(cmdbuf, i, &i); // This is kind of a poor idea
+    // If we haven't hit a pipe we're done; otherwise increment i
+    if (cmdbuf[i] == '|')
+      ++i;
+  }
+
+  // Print everything out to check that nothing is too stupid
+  for (k = 0; k < j; ++k) {
+    printf("Node %d:\n", k);
+    // Print the command
+    if (base[k]->str) {
+      printf("Command: %s\n", base[k]->str);
+      
+      printf("Args: \n");
+      for (i = 0; i < base[k]->nargs; ++i)
+	printf("%s ", base[k]->args[i]);
+      printf("\n");
+      
+      // Check redirection?
+    }
+    else {
+      printf("Null command");
+    }
+  }
 
   // Fork new processes (there would be an exception if we were writing a
   // real shell, which is exec...)
@@ -362,10 +379,7 @@ int main() {
 
   */
 
-  // Free the things
-  for (j = 0; j < nargs; ++j)
-    free(args[j]);
-  free(args);
+  // Free things (related to this command)
 
   // Loop should end here, and we should deallocate stuff
   

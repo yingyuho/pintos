@@ -1,5 +1,6 @@
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 typedef struct stringbuilder {
   char *buf;
@@ -61,7 +62,7 @@ int parse_token(stringbuilder_t *ptr, char *buf, int idx) {
   erase_stringb(ptr);
 
   // Return value is the ending index (so that we can continue the parsing)
-  int i, j;
+  int i;
   // Remove leading whitespace
   for(i = idx; buf[i] && isspace(buf[i]); ++i);
 
