@@ -28,9 +28,6 @@
 // vs (a | b) < c; since you can always reorder arguments to avoid using
 // parentheses I don't see the point.
 
-// A directed node struct. Has any number of parents and children, but
-// the way we build it ensures that it will be a tree.
-
 // How parsing works (with regards to redirection):
 // Upon encountering any redirection, we first need to grab any surrounding
 // characters that specify variants.
@@ -61,6 +58,8 @@ typedef struct node {
   char **ins; // Files redirected to input
   int nouts;
   char **outs; // Files output is redirected to
+  // Do the same for the error stream, and maybe other file descriptors if it
+  // comes up
 } node_t;
 
 // Helper functions for I/O redirection
