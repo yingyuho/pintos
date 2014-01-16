@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 #include "stringbuilder.h"
 
@@ -90,10 +91,6 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
   node_t *ptr = calloc(1,sizeof(node_t));
   // I do make the (mostly portable) assumption that NULL is 0 here
 
-  // for (i = 0; i < 10; ++i)
-  //  for (j = 0; j < 2; ++j)
-  //    ptr->fdtable[i][j] = -1;
-
   sb = nstringb();
 
   // Parse the first token; if it is < or >, then the command is empty
@@ -148,13 +145,7 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
       ptr->outs = realloc(ptr->outs, ptr->nouts * sizeof(char *));
       ptr->outs[ptr->nouts-1] = to_string(sb);
     }
-    else if (*(sb->buf) == '|') {
-      // This, on the other hand, is a parse error!
-      free(ptr);
-      destroy_stringb(sb);
-      return NULL;
-    }
-    else {
+    else if (cmd[i] == 0) {
       // Empty command with no redirection? I assume the user just typed a
       // newline at the terminal... Should be handled properly at the running
       // side, by checking whether ptr->str is null.
@@ -162,9 +153,18 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
       destroy_stringb(sb);
       return ptr;
     }
+    else {
+      // Probably hit a pipe; that's a parse error
+      free(ptr);
+      destroy_stringb(sb);
+      return NULL;
+    }
   }
   else {
     ptr->str = to_string(sb);
+    ptr->nargs++;
+    ptr->args = malloc(sizeof(char*));
+    ptr->args[0] = to_string(sb);
   }
 
   while (cmd[i] && (cmd[i] != '|')) {
@@ -208,7 +208,10 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
       ptr->args[ptr->nargs-1] = to_string(sb);
     }
   }
-	 
+  // Pad argument list with a NULL
+  ptr->nargs++;
+  ptr->args = realloc(ptr->args, ptr->nargs * sizeof(char *));
+  ptr->args[ptr->nargs-1] = NULL;
   *endidx = i;
   destroy_stringb(sb);
   return ptr;
@@ -224,6 +227,7 @@ int main() {
   node_t **base;
 
   int i, j, k;
+  int pipefds[2][2];
 
   dirbuf = malloc(PATH_MAX + 1);
   hostname = malloc(HOST_NAME_MAX + 1);
@@ -255,6 +259,11 @@ int main() {
       ++i;
   }
 
+  // j is the number of nodes; I should probably store this in a better named
+  // variable
+
+  /*
+
   // Print everything out to check that nothing is too stupid
   for (k = 0; k < j; ++k) {
     printf("Node %d:\n", k);
@@ -271,6 +280,100 @@ int main() {
     }
     else {
       printf("Null command");
+    }
+  }
+
+  */
+
+  for (k = 1; k < j; ++k) {
+    // If the command is null then we have a parse error
+    if (base[k]->str == NULL) {
+      fprintf(stderr, "Parse error\n");
+      // TODO: replace with continue once we write the loop
+      return 0;
+    }
+  }
+
+  // Now we do some forking.
+  for (i = 0; i < j; ++i) {
+
+    // Make a pipe for ...piping, if necessary.
+
+    if (i > 0) {
+      if (i > 1)
+	close(pipefds[0][0]);
+      close(pipefds[1][1]);
+      pipefds[0][0] = pipefds[1][0];
+      //pipefds[0][1] = pipefds[1][1];
+    }
+    if (i < j-1) {
+      pipe(pipefds[1]);
+    }
+
+    k = fork();
+    if (k) {
+      if (k == -1) {
+	fprintf(stderr, "Something went wrong\n");
+	return -1;
+      }
+      k = i+1;
+      break;
+    }
+  }
+
+  if (k == 0) {
+    // We are in the "parent" process
+    
+    // Close that last pipe
+    if (j > 1) {
+      close(pipefds[0][0]);
+    }
+
+    // Do something reasonable (like wait for all things to finish)
+    for(; k<j; ++k) {
+      wait(&i);
+    }
+  }
+  else {
+    k--;
+    // We are in the "child" process corresponding to node base[k]
+
+    // Set up I/O
+    if (k > 0) {
+      // Set our input properly
+      dup2(pipefds[0][0], STDIN_FILENO);
+    }
+    else {
+      // Check whether to take input from file or stdin
+      if (base[0]->nins) {
+	// Open the named file (I assume there's only one for now; multiple
+	// input involves another fork)
+	i = open(base[0]->ins[0], O_RDONLY);
+	dup2(i, STDIN_FILENO);
+      }
+    }
+    if (k < j-1) {
+      // Set our output properly
+      close(pipefds[1][0]);
+      dup2(pipefds[1][1], STDOUT_FILENO);
+    }
+    else {
+      // Check whether to output to file or stdout
+      if (base[j-1]->nouts) {
+	i = open(base[j-1]->outs[0], O_WRONLY);
+	dup2(i, STDOUT_FILENO);
+      }
+    }
+    // Execute our command with the given arguments
+    if (base[k]->str)
+      execvp(base[k]->args[0],base[k]->args);
+    else {
+      // We will do something stupid :D
+      // If the first command is the only command and is empty, ignore it
+      if (j == 1)
+	return 0;
+      // Otherwise run cat instead
+      execlp("cat","cat",(char*) NULL);
     }
   }
 

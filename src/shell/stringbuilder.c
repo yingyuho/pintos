@@ -79,7 +79,8 @@ int parse_token(stringbuilder_t *ptr, char *buf, int idx) {
       // shouldn't accept a command with unbalanced quotes)
 
       // The spec says not to expect newlines, but meh. It's not that hard
-      // to insert support for them.
+      // to insert support for them (just read another line if quotes are
+      // unbalanced)
       for (i++; buf[i] && buf[i] != '"'; ++i) {
 	if (buf[i] == '\\') {
 	  // Read the next character, unless it is a newline.
