@@ -34,8 +34,7 @@ int main() {
   printf("%s@%s:%s>", getlogin(), hostname, dirbuf);
   // Get a command from stdin
 
-  // TODO: fix this. We need to check whether cmdbuf has unbalanced quotes
-  // or ends with a backslash; in those cases we need to read another line
+  // TODO: handle unbalanced quotes here one way or another
   fgets(cmdbuf, 1024, stdin);
   
   // Tokenize it (Relevant separators for the redirection structure are
@@ -100,7 +99,6 @@ int main() {
 	close(pipefds[0][0]);
       close(pipefds[1][1]);
       pipefds[0][0] = pipefds[1][0];
-      //pipefds[0][1] = pipefds[1][1];
     }
     if (i < j-1) {
       pipe(pipefds[1]);
@@ -183,75 +181,72 @@ int main() {
 	return 0;
       // Otherwise run cat instead
       execlp("cat","cat",(char*) NULL);
+    }
 
-      switch(errno) {
-	// If we got here then we had an error; no need to check return value
-      case E2BIG:
-	// should never happen, 1024 is much smaller than ARG_MAX on any
-	// reasonable system
-	fprintf(stderr, "Too many arguments\n");
-	break;
-      case EACCES:
-	// No execute permission, or the file or script interpreter is not a file
-	// or the path can't be resolved.
-	fprintf(stderr, "Permission denied\n");
-	break;
-      case EFAULT:
-	// This should really never happen, considering I allocated args[0]
-	// myself!
-	fprintf(stderr, "Your computer is probably dying\n");
-	break;
-      case EINVAL:
-	fprintf(stderr, "ELF executable tried to name more than one interpreter\n");
-	break;
-      case EIO:
-	fprintf(stderr, "I/O error\n");
-	break;
-      case EISDIR:
-	fprintf(stderr, "ELF interpreter is a directory\n");
-	break;
-      case ELIBBAD:
-	fprintf(stderr, "Bad ELF interpreter\n");
-	break;
-      case ELOOP:
-	fprintf(stderr, "Too many symlinks (infinite loop?)\n");
-	break;
-      case EMFILE:
-	fprintf(stderr, "Too many files opened by process\n");
-	break;
-      case ENAMETOOLONG: // That's an appropriately named macro
-	fprintf(stderr, "Filename too long\n");
-	break;
-      case ENFILE:
-	fprintf(stderr, "Too many files opened by user\n");
-	break;
-      case ENOENT:
-	fprintf(stderr, "Command not found\n");
-	break;
-      case ENOEXEC:
-	fprintf(stderr, "Exec format error\n");
-	break;
-      case ENOMEM:
-	fprintf(stderr, "Out of kernel memory\n");
-	break;
-      case ENOTDIR:
-	// Indicates that something in the path prefix is not a directory
-	fprintf(stderr, "Not a directory\n");
-	break;
-      case EPERM:
-	// Not being allowed to run a suid / sgid file
-	// file system is mounted nosuid, or process is being traced
-	fprintf(stderr, "Permission denied\n");
-	break;
-      case ETXTBSY:
-	fprintf(stderr, "Executable is opened for writing\n");
-	break;
-      }
+    switch(errno) {
+      // If we got here then we had an error; no need to check return value
+    case E2BIG:
+      // should never happen, 1024 is much smaller than ARG_MAX on any
+      // reasonable system
+      fprintf(stderr, "Too many arguments\n");
+      break;
+    case EACCES:
+      // No execute permission, or the file or script interpreter is not a file
+      // or the path can't be resolved.
+      fprintf(stderr, "Permission denied\n");
+      break;
+    case EFAULT:
+      // This should really never happen, considering I allocated args[0]
+      // myself!
+      fprintf(stderr, "Your computer is probably dying\n");
+      break;
+    case EINVAL:
+      fprintf(stderr, "ELF executable tried to name more than one interpreter\n");
+      break;
+    case EIO:
+      fprintf(stderr, "I/O error\n");
+      break;
+    case EISDIR:
+      fprintf(stderr, "ELF interpreter is a directory\n");
+      break;
+    case ELIBBAD:
+      fprintf(stderr, "Bad ELF interpreter\n");
+      break;
+    case ELOOP:
+      fprintf(stderr, "Too many symlinks (infinite loop?)\n");
+      break;
+    case EMFILE:
+      fprintf(stderr, "Too many files opened by process\n");
+      break;
+    case ENAMETOOLONG: // That's an appropriately named macro
+      fprintf(stderr, "Filename too long\n");
+      break;
+    case ENFILE:
+      fprintf(stderr, "Too many files opened by user\n");
+      break;
+    case ENOENT:
+      fprintf(stderr, "Command not found\n");
+      break;
+    case ENOEXEC:
+      fprintf(stderr, "Exec format error\n");
+      break;
+    case ENOMEM:
+      fprintf(stderr, "Out of kernel memory\n");
+      break;
+    case ENOTDIR:
+      // Indicates that something in the path prefix is not a directory
+      fprintf(stderr, "Not a directory\n");
+      break;
+    case EPERM:
+      // Not being allowed to run a suid / sgid file
+      // file system is mounted nosuid, or process is being traced
+      fprintf(stderr, "Permission denied\n");
+      break;
+    case ETXTBSY:
+      fprintf(stderr, "Executable is opened for writing\n");
+      break;
     }
   }
-
-  // Fork new processes (there would be an exception if we were writing a
-  // real shell, which is exec...)
 
   // Free things (related to this command)
   for (k = 0; k < j; ++k) {
@@ -272,7 +267,7 @@ int main() {
     free(base[k]);
   }
 
-  // Loop should end here, and we should deallocate stuff
+  // Loop should end here (once we add a loop)
   
   free(base);
   free(cmdbuf);
