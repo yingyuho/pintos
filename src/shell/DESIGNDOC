@@ -56,7 +56,7 @@ at least)
 >> shell internally represent such a command?
 
 The shell is internally represented as three node_t's. Each of them holds
-the respective file ("a", "b", and "c" respectively) as well as the array
+the name of the file ("a", "b", and "c" respectively) as well as the array
 of arguments ({"a", "arg1", "arg2", NULL}, {"b", "arg1", NULL}, and {"c", 
 "arg1", "arg2", "arg3", NULL} respectively). Each of the node_t's is
 constructed by parsing up to an unescaped pipe or null character.
@@ -72,8 +72,9 @@ descriptors that are no longer necessary before proceeding to the next child.
 >> represented, and by what processes.
 
 The redirections are handled during the construction of the nodes (the < and
-> are never parsed into the argument list). The reason for this is to
-avoid possible ambiguity with regards to quoted or escaped characters.
+> are never parsed into the argument list). The reason for this is both to
+avoid possible ambiguity with regards to quoted or escaped characters, and
+to avoid wasting memory constructing another array to pass to execve().
 When the parser finds an unescaped, unquoted < or >, it reads the next token
 and stores that in the ins or outs arrays of the node (or gives a parse error
 if the token is empty). That array is then used to redirect input or output.
@@ -116,7 +117,7 @@ too many file descriptors open at once.
 >> A5: Similarly, describe the details of how terminated processes are
 >> reaped in the example command "a | b | c".
 
-The command shell process keeps track of the number of commands, so it simply
+The command shell process keeps track of the number of children, so it simply
 calls wait() that many times (ignoring all return values).
 
 >> A6: Similarly, describe which processes are responsible for setting
@@ -144,6 +145,10 @@ Setting up redirection during parsing allows us to avoid ambiguity between
 possible input strings (for example ls > > and ls > \>, the latter of which
 is a valid command) while still allowing us to strip backslashes and double
 quotes to allow arguments to be passed to execvp().
+
+Storing the information in the structs also makes it easier to extend the
+shell (for example, to implement multiple redirection), as well as to debug
+the parser separately from the rest of the program.
 
 			  SURVEY QUESTIONS
 			  ================

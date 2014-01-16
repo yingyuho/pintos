@@ -83,9 +83,9 @@ int parse_token(stringbuilder_t *ptr, char *buf, int idx) {
       // unbalanced)
       for (i++; buf[i] && buf[i] != '"'; ++i) {
 	if (buf[i] == '\\') {
-	  // Read the next character, unless it is a newline.
+	  // Read the next character, unless it is a newline or 0
 	  ++i;
-	  if (buf[i] != '\n')
+	  if (buf[i] && buf[i] != '\n')
 	    addchar(ptr, buf[i]);
 	}
 	else {
@@ -95,9 +95,12 @@ int parse_token(stringbuilder_t *ptr, char *buf, int idx) {
       }
       break;
     case '\\':
-      // Read the next character as a literal, unless it is newline
+      // Read the next character as a literal, unless it is newline or 0
+      // 0 is a really silly case that would lead to a segfault if
+      // given an input string of length at least 1024, where the 1024th
+      // character is a backslash.
       ++i;
-      if (buf[i] != '\n')
+      if (buf[i] && buf[i] != '\n')
 	addchar(ptr, buf[i]);
       break;
 

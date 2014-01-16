@@ -15,17 +15,14 @@
 // < (Input from file)
 // | (Pipe)
 // > (Redirect stdout to file)
+// >>
 
 // Redirection only works for input to the first command and output to
 // the last command.
 
-// Things to maybe implement
-// >>
-// &> and &| (or >&)
-
 // I've rolled my own parser which is kind of ugly. The data structure provides
-// more information than is actually used during execution (so that we can
-// extend it to add more features).
+// more information than is actually used during execution (so that it can be
+// extended to add more features).
 
 // Parses a single command, starting from idx and ending at either EOF or
 // a pipe. Returns NULL if you did something stupid (trying to redirect to
