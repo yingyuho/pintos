@@ -42,6 +42,7 @@ int main() {
   fgets(cmdbuf, 1024, stdin);
   if (feof(stdin)) {
     // User typed a EOF, so let's ignore them
+    printf("^D\n");
     strcpy(cmdbuf, "exit\n");
   }
   
