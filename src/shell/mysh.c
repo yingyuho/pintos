@@ -50,6 +50,9 @@ int main() {
     // If we haven't hit a pipe we're done; otherwise increment i
     if (cmdbuf[i] == '|')
       ++i;
+    if (j%10 == 0) {
+      base = realloc(base, (10 + j) * sizeof(node_t*));
+    }
   }
 
   // j is the number of nodes; I should probably store this in a better named
