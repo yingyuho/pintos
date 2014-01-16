@@ -40,6 +40,10 @@ int main() {
 
   // TODO: handle unbalanced quotes here one way or another
   fgets(cmdbuf, 1024, stdin);
+  if (feof(stdin)) {
+    // User typed a EOF, so let's ignore them
+    strcpy(cmdbuf, "exit\n");
+  }
   
   // Tokenize it (Relevant separators for the redirection structure are
   // <, >, and |; we can just look at the adjacent characters to determine
@@ -115,23 +119,23 @@ int main() {
 	chdir("~");
       }
       for (k = 0; k < j; ++k) {
-    if (base[k]->str)
-      free(base[k]->str);
-    for (i = 0; i < base[k]->nargs; ++i)
-      free(base[k]->args[i]);
-    if (base[k]->args)
-      free(base[k]->args);
-    for (i = 0; i < base[k]->nins; ++i)
-      free(base[k]->ins[i]);
-    if (base[k]->ins)
-      free(base[k]->ins);
-    for (i = 0; i < base[k]->nouts; ++i)
-      free(base[k]->outs[i]);
-    if (base[k]->outs)
-      free(base[k]->outs);
-    free(base[k]);
-  }
-  free(base);
+	if (base[k]->str)
+	  free(base[k]->str);
+	for (i = 0; i < base[k]->nargs; ++i)
+	  free(base[k]->args[i]);
+	if (base[k]->args)
+	  free(base[k]->args);
+	for (i = 0; i < base[k]->nins; ++i)
+	  free(base[k]->ins[i]);
+	if (base[k]->ins)
+	  free(base[k]->ins);
+	for (i = 0; i < base[k]->nouts; ++i)
+	  free(base[k]->outs[i]);
+	if (base[k]->outs)
+	  free(base[k]->outs);
+	free(base[k]);
+      }
+      free(base);
       continue;
     }
     if (strcmp(base[0]->str, "exit") == 0) {
