@@ -42,7 +42,8 @@ This has no memory leaks on Lubuntu 13.10; I can't say the same for OpenSUSE.
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course instructors.
 
-linux.die.net for POSIX references
+linux.die.net for POSIX references (on a bigger screen than the man pages,
+at least)
 
 			   COMMAND SHELL
 			   =============
@@ -109,8 +110,8 @@ that it's given; the second process sets its stdin to the read side of that
 pipe and its stdout to the write side of a new pipe; the third process sets
 its stdin to the read side of that new pipe.
 
-The open pipes are cleaned up between each fork() to avoid having too many
-file descriptors open at once.
+The open pipes are cleaned up by the shell process each fork() to avoid having
+too many file descriptors open at once.
 
 >> A5: Similarly, describe the details of how terminated processes are
 >> reaped in the example command "a | b | c".
@@ -139,8 +140,6 @@ process.
 >> A6: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
 
-                         SURVEY QUESTIONS
-                         ================
 Setting up redirection during parsing allows us to avoid ambiguity between
 possible input strings (for example ls > > and ls > \>, the latter of which
 is a valid command) while still allowing us to strip backslashes and double
