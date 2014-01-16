@@ -10,7 +10,6 @@
 
 Yichi Zhang <yzzhang@caltech.edu>
 Ying-Yu Ho <yingyu@caltech.edu>
-FirstName LastName <email@domain.example>
 
 >> Specify how many late tokens you are using on this assignment:  0
 
@@ -24,12 +23,17 @@ FirstName LastName <email@domain.example>
 >> If you have any preliminary comments on your submission, notes for the
 >> TAs, or extra credit, please give them here.
 
+Undocumented feature: An empty command is treated as cat (for example the
+command "< in.txt > out.txt" is basically cp in.txt out.txt, except that
+permissions are set to 644). This is roughly what zsh does (except it pipes to
+more if output isn't redirected).
+
+This has no memory leaks on Lubuntu 13.10; I can't say the same for OpenSUSE.
+
 >> Please cite any offline or online sources you consulted while
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course instructors.
 
-                          COMMAND SHELL
-                          =============
 linux.die.net for POSIX references
 
 			   COMMAND SHELL

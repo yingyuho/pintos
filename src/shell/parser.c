@@ -50,11 +50,13 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
       *(ptr->str) = 0;
 
       // Get the next token and process it correctly
-      i = parse_token(sb, cmd, i+1);
+      ++i;
+      i = parse_token(sb, cmd, i);
       // If this one is also empty, that's a parse error.
       // It indicates either that you have two consequent redirection commands
       // or you haven't given a file name for redirection (for example ls <)
       if (sb->curlen == 0) {
+	fprintf(stderr, "Parse error\n");
 	free(ptr);
 	destroy_stringb(sb);
 	return NULL;
@@ -69,13 +71,14 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
       // Should check for >> if we implement it
       ptr->str = malloc(1);
       *(ptr->str) = 0;
-
+      ++i;
       // Get the next token and process it correctly
-      i = parse_token(sb, cmd, i+1);
+      i = parse_token(sb, cmd, i);
       // If this one is also empty, that's a parse error.
       // It indicates either that you have two consequent redirection commands
       // or you haven't given a file name for redirection (for example ls >)
       if (sb->curlen == 0) {
+	fprintf(stderr, "Parse error\n");
 	free(ptr);
 	destroy_stringb(sb);
 	return NULL;
@@ -95,6 +98,7 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
     }
     else {
       // Probably hit a pipe; that's a parse error
+      fprintf(stderr, "Parse error\n");
       free(ptr);
       destroy_stringb(sb);
       return NULL;
@@ -114,6 +118,7 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
       if (cmd[i] == '<') {
 	i = parse_token(sb, cmd, i+1);
 	if (sb->curlen == 0) {
+	  fprintf(stderr, "Parse error\n");
 	  free(ptr);
 	  destroy_stringb(sb);
 	  return NULL;
@@ -127,6 +132,7 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
 	// TODO: also check for >>, if we're implementing that
 	i = parse_token(sb, cmd, i+1);
 	if (sb->curlen == 0) {
+	  fprintf(stderr, "Parse error\n");
 	  free(ptr);
 	  destroy_stringb(sb);
 	  return NULL;

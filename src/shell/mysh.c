@@ -56,12 +56,38 @@ int main() {
   for (j = 0; cmdbuf[i]; ++j) {
     base[j] = parsecmd(cmdbuf, i, &i); // This is kind of a poor idea
     // If we haven't hit a pipe we're done; otherwise increment i
+    if (base[j] == NULL) {
+      // Then we're doing something wrong; go back and deallocate everything
+      for (k = 0; k < j; ++k) {
+	if (base[k]->str)
+	  free(base[k]->str);
+	for (i = 0; i < base[k]->nargs; ++i)
+	  free(base[k]->args[i]);
+	if (base[k]->args)
+	  free(base[k]->args);
+	for (i = 0; i < base[k]->nins; ++i)
+	  free(base[k]->ins[i]);
+	if (base[k]->ins)
+	  free(base[k]->ins);
+	for (i = 0; i < base[k]->nouts; ++i)
+	  free(base[k]->outs[i]);
+	if (base[k]->outs)
+	  free(base[k]->outs);
+	free(base[k]);
+      }
+      free(base);
+      j = -1;
+      break;
+    }
     if (cmdbuf[i] == '|')
       ++i;
     if (j%10 == 0) {
       base = realloc(base, (10 + j) * sizeof(node_t*));
     }
   }
+
+  if (j == -1)
+    continue;
 
   // j is the number of nodes; I should probably store this in a better named
   // variable
@@ -90,9 +116,7 @@ int main() {
   */
 
   // Check for internal commands; for now, cd and exit
-  if (j == 1) {
-    if (base[0]->str == NULL)
-      continue; // Empty command is empty
+  if (j == 1 && base[0]->str != NULL) {
     if (strcmp(base[0]->str, "cd") == 0) {
       // Change directory
       if (base[0]->nargs > 2) {
@@ -255,12 +279,12 @@ int main() {
       }
     }
     // Execute our command with the given arguments
-    if (base[k]->str)
+    if (strcmp(base[k]->str,""))
       execvp(base[k]->args[0],base[k]->args);
     else {
       // We will do something stupid :D
       // If the first command is the only command and is empty, ignore it
-      if (j == 1)
+      if (j == 1 && (base[0]->nins == 0) && (base[0]->nouts == 0))
 	return 0;
       // Otherwise run cat instead
       execlp("cat","cat",(char*) NULL);
@@ -352,6 +376,7 @@ int main() {
   free(base);
   }
   
+  free(username);
   free(cmdbuf);
   free(dirbuf);
   free(hostname);
