@@ -26,7 +26,7 @@ int main() {
   hostname = malloc(HOST_NAME_MAX + 1);
   cmdbuf = malloc(1025); // Apparently this should be a kernel parameter;
   // ARG_MAX is above 2 million on my system!
-  
+  for(;;) {
   
   getcwd(dirbuf, PATH_MAX);
   gethostname(hostname, HOST_NAME_MAX);
@@ -86,6 +86,41 @@ int main() {
       fprintf(stderr, "Parse error\n");
       // TODO: replace with continue once we write the loop
       return 0;
+    }
+  }
+
+  // Check for internal commands; for now, cd and exit
+  if (j == 1) {
+    if (strcmp(base[0]->str, "cd") == 0) {
+      // Change directory
+      if (base[0]->nargs > 2) {
+	i = chdir(base[0]->args[1]);
+	// Check for errors
+        switch(i) {
+	case EACCES:
+	  fprintf(stderr, "Permission denied\n");
+	  break;
+	case ELOOP:
+	  fprintf(stderr, "Too many symlinks (infinite loop?)\n");
+	  break;
+	case ENAMETOOLONG:
+	  fprintf(stderr, "Directory or path name too long\n");
+	  break;
+	case ENOENT:
+	  fprintf(stderr, "Directory does not exist\n");
+	  break;
+	case ENOTDIR:
+	  fprintf(stderr, "Not a directory\n");
+	  break;
+	}
+      }
+      else {
+	chdir("~");
+      }
+      continue;
+    }
+    if (strcmp(base[0]->str, "exit") == 0) {
+      break;
     }
   }
 
@@ -267,6 +302,7 @@ int main() {
     free(base[k]);
   }
 
+  }
   // Loop should end here (once we add a loop)
   
   free(base);
