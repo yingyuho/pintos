@@ -4,12 +4,10 @@ CFLAGS = -Wall -W -g
 all: mysh
 
 mysh: mysh.o parser.o stringbuilder.o
-
-parsertest: parser.o stringbuilder.o
-	$(CC) -o parsertest parser.o stringbuilder.o
+	$(CC) $(CFLAGS) -o mysh $^
 
 clean: 
-	rm -f *.o *~ mysh parsertest
+	rm -f *.o *~ mysh
 
 .PHONY: all clean
 

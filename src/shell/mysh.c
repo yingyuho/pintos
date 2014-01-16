@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <pwd.h>
 
 #include "parser.h"
 #include "stringbuilder.h"
@@ -16,7 +17,7 @@ int main() {
   char *dirbuf;
   char *hostname;
   char *cmdbuf;
-
+  char *username;
   node_t **base;
 
   int i, j, k;
@@ -24,14 +25,17 @@ int main() {
 
   dirbuf = malloc(PATH_MAX + 1);
   hostname = malloc(HOST_NAME_MAX + 1);
+  username = malloc(256);
+
   cmdbuf = malloc(1025); // Apparently this should be a kernel parameter;
   // ARG_MAX is above 2 million on my system!
   for(;;) {
   
   getcwd(dirbuf, PATH_MAX);
   gethostname(hostname, HOST_NAME_MAX);
-  
-  printf("%s@%s:%s>", getlogin(), hostname, dirbuf);
+
+  getlogin_r(username, 255);
+  printf("%s@%s:%s>", username, hostname, dirbuf);
   // Get a command from stdin
 
   // TODO: handle unbalanced quotes here one way or another
@@ -80,17 +84,10 @@ int main() {
 
   */
 
-  for (k = 1; k < j; ++k) {
-    // If the command is null then we have a parse error
-    if (base[k]->str == NULL) {
-      fprintf(stderr, "Parse error\n");
-      // TODO: replace with continue once we write the loop
-      return 0;
-    }
-  }
-
   // Check for internal commands; for now, cd and exit
   if (j == 1) {
+    if (base[0]->str == NULL)
+      continue; // Empty command is empty
     if (strcmp(base[0]->str, "cd") == 0) {
       // Change directory
       if (base[0]->nargs > 2) {
@@ -117,10 +114,55 @@ int main() {
       else {
 	chdir("~");
       }
+      for (k = 0; k < j; ++k) {
+    if (base[k]->str)
+      free(base[k]->str);
+    for (i = 0; i < base[k]->nargs; ++i)
+      free(base[k]->args[i]);
+    if (base[k]->args)
+      free(base[k]->args);
+    for (i = 0; i < base[k]->nins; ++i)
+      free(base[k]->ins[i]);
+    if (base[k]->ins)
+      free(base[k]->ins);
+    for (i = 0; i < base[k]->nouts; ++i)
+      free(base[k]->outs[i]);
+    if (base[k]->outs)
+      free(base[k]->outs);
+    free(base[k]);
+  }
+  free(base);
       continue;
     }
     if (strcmp(base[0]->str, "exit") == 0) {
+      for (k = 0; k < j; ++k) {
+    if (base[k]->str)
+      free(base[k]->str);
+    for (i = 0; i < base[k]->nargs; ++i)
+      free(base[k]->args[i]);
+    if (base[k]->args)
+      free(base[k]->args);
+    for (i = 0; i < base[k]->nins; ++i)
+      free(base[k]->ins[i]);
+    if (base[k]->ins)
+      free(base[k]->ins);
+    for (i = 0; i < base[k]->nouts; ++i)
+      free(base[k]->outs[i]);
+    if (base[k]->outs)
+      free(base[k]->outs);
+    free(base[k]);
+  }
+  free(base);
       break;
+    }
+  }
+
+  for (k = 1; k < j; ++k) {
+    // If the command is null then we have a parse error
+    if (base[k]->str == NULL) {
+      fprintf(stderr, "Parse error\n");
+      // TODO: replace with continue once we write the loop
+      return 0;
     }
   }
 
@@ -157,6 +199,7 @@ int main() {
       fprintf(stderr, "Get a real computer\n");
       // ENOSYS indicates that the system doesn't support forks
       break;
+      // TODO: Should probably do something here, like crash
     }
     k = 0;
   }
@@ -169,7 +212,7 @@ int main() {
       close(pipefds[0][0]);
     }
 
-    // Do something reasonable (like wait for all things to finish)
+    // Wait for children to finish
     for(; k<j; ++k) {
       wait(&i);
     }
@@ -301,11 +344,9 @@ int main() {
       free(base[k]->outs);
     free(base[k]);
   }
-
-  }
-  // Loop should end here (once we add a loop)
-  
   free(base);
+  }
+  
   free(cmdbuf);
   free(dirbuf);
   free(hostname);
