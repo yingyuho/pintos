@@ -57,7 +57,7 @@ int main() {
   // j is the number of nodes; I should probably store this in a better named
   // variable
 
-  /*
+  
 
   // Print everything out to check that nothing is too stupid
   for (k = 0; k < j; ++k) {
@@ -78,7 +78,7 @@ int main() {
     }
   }
 
-  */
+  
 
   for (k = 1; k < j; ++k) {
     // If the command is null then we have a parse error

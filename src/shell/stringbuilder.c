@@ -93,9 +93,6 @@ int parse_token(stringbuilder_t *ptr, char *buf, int idx) {
 	  addchar(ptr, buf[i]);
 	}
       }
-      // Skip past the ending quote
-      if (buf[i] == '"')
-	++i;
       break;
     case '\\':
       // Read the next character as a literal, unless it is newline
