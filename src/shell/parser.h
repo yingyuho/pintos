@@ -13,6 +13,7 @@ typedef struct node {
   char **ins; // Files redirected to input
   int nouts;
   char **outs; // Files output is redirected to
+  int append;
 } node_t;
 
 node_t *parsecmd(char *cmd, int startidx, int *endidx);

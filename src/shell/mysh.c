@@ -38,17 +38,12 @@ int main() {
   printf("%s@%s:%s>", username, hostname, dirbuf);
   // Get a command from stdin
 
-  // TODO: handle unbalanced quotes here one way or another
   fgets(cmdbuf, 1024, stdin);
   if (feof(stdin)) {
     // User typed a EOF, so let's ignore them
     printf("^D\n");
     strcpy(cmdbuf, "exit\n");
   }
-  
-  // Tokenize it (Relevant separators for the redirection structure are
-  // <, >, and |; we can just look at the adjacent characters to determine
-  // any variants)
 
   base = malloc(sizeof (node_t*) * 10); // Change later
   // Tokenize (building the data structure as we go)
@@ -272,7 +267,8 @@ int main() {
     else {
       // Check whether to output to file or stdout
       if (base[j-1]->nouts) {
-	i = open(base[j-1]->outs[0], O_WRONLY | O_CREAT,
+	i = open(base[j-1]->outs[0], O_WRONLY | O_CREAT | 
+		 (base[j-1]->append * O_APPEND),
 		 S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 	// >> is implemented by also ORing O_APPEND of course
 	dup2(i, STDOUT_FILENO);

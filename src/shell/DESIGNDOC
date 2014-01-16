@@ -28,6 +28,14 @@ command "< in.txt > out.txt" is basically cp in.txt out.txt, except that
 permissions are set to 644). This is roughly what zsh does (except it pipes to
 more if output isn't redirected).
 
+Undocumented feature: All redirections are parsed, but only the first one
+is actually done, and only for the last part of the command (for example
+"ls > a >> b" will just do "ls > a") This is an attempt to allow the shell
+to at least have the same syntax as other shells, even if it doesn't do
+the same thing.
+
+The first extra credit (appending to file) is implemented.
+
 This has no memory leaks on Lubuntu 13.10; I can't say the same for OpenSUSE.
 
 >> Please cite any offline or online sources you consulted while

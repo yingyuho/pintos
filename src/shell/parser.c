@@ -68,7 +68,11 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
       // Command is empty
     }
     else if (cmd[i] == '>') {
-      // Should check for >> if we implement it
+      if (cmd[i+1] == '>') {
+	++i;
+	if (ptr->nouts == 0)
+	  ptr->append = 1;
+      }
       ptr->str = malloc(1);
       *(ptr->str) = 0;
       ++i;
@@ -129,7 +133,11 @@ node_t *parsecmd(char *cmd, int startidx, int *endidx) {
       }
       
       else if (cmd[i] == '>') {
-	// TODO: also check for >>, if we're implementing that
+	if (cmd[i+1] == '>') {
+	  ++i;
+	  if (ptr->nouts == 0)
+	    ptr->append = 1;
+	}
 	i = parse_token(sb, cmd, i+1);
 	if (sb->curlen == 0) {
 	  fprintf(stderr, "Parse error\n");
