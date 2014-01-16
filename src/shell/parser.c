@@ -25,7 +25,7 @@
 
 // I've rolled my own parser which is kind of ugly. The data structure provides
 // more information than is actually used during execution (so that we can
-// extend it to add more features)
+// extend it to add more features).
 
 // Parses a single command, starting from idx and ending at either EOF or
 // a pipe. Returns NULL if you did something stupid (trying to redirect to
