@@ -1,18 +1,20 @@
-			+------------------+
-			|      CS 124      |
-			| PROJECT 1: SHELL |
-			|  DESIGN DOCUMENT |
-			+------------------+
-				   
+                        +------------------+
+                        |      CS 124      |
+                        | PROJECT 1: SHELL |
+                        |  DESIGN DOCUMENT |
+                        +------------------+
+                   
 ---- GROUP ----
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
+Yichi   Zhang   <yichizhng@gmail.com>
+Ying-Yu Ho      <heinsolid@gmail.com>
+Andy    Keller  <tkeller@caltech.edu>
 
 >> Specify how many late tokens you are using on this assignment:  
+
+0
 
 >> What is the Git repository and commit hash for your submission?
 
@@ -28,8 +30,8 @@ FirstName LastName <email@domain.example>
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course instructors.
 
-			   COMMAND SHELL
-			   =============
+                          COMMAND SHELL
+                          =============
 
 ---- DATA STRUCTURES ----
 
@@ -73,8 +75,8 @@ FirstName LastName <email@domain.example>
 >> A6: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
 
-			  SURVEY QUESTIONS
-			  ================
+                         SURVEY QUESTIONS
+                         ================
 
 Answering these questions is optional, but it will help us improve the
 course in future quarters.  Feel free to tell us anything you
