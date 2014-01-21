@@ -60,8 +60,7 @@
 	
 # The struct starts at 0x7E00 and takes up 16 bytes.
 # The first two bytes should be 10h and 00h respectively
-	movb $0x10, 0x7e00
-	movb $0, 0x7e01
+	movw $0x0010, 0x7e00
 # Next two bytes are the number of sectors (so 1 here)
 	movw $0x0001, 0x7e02
 # Next four bytes are segment:offset for the place to read into
@@ -77,11 +76,6 @@
 	
 loop:   mov $0x42, %ah
 	inc %dl
-#	call puts
-#	.string "\r Checking hard drive "
-#	mov %dl, %al
-#	sub $0x50, %al
-#	call putc
 	
 	int $0x13
 
@@ -94,10 +88,6 @@ loop:   mov $0x42, %ah
 	testw $0x55aa, (0x800e)
 	jne loop
 
-# Drive is bootable. Print a message to that effect
-#	call puts
-#	.string "\r\rBootable drive found\r"
-
 # Do something here (find a bootable partition, load a kernel, etc)
 
 	mov $0x7fce, %bx
@@ -107,12 +97,18 @@ part_loop:
 # 0x20 in the fourth byte signifies pintos partition
 	testb $0x80, 1(%bx)
 	jne fail
-#	call puts
-#	.string "\r\rNormal partition\r"
 	testb $0x20, 5(%bx)
 	jne fail
 	call puts
-	.string "\r\rPintos partition\r"
+	.string "\r\rLoading Pintos from hd"
+	mov %dl, %al
+	sub $0x1f, %al
+	call putc
+	mov $53, %al
+	sub %cl, %al
+	call putc
+	mov $10, %al
+	call putc
 # Since we've found a bootable partition, boot it! The LBA address and number
 # of sectors are in the relevant entry. We can use %ax as scratch space.
 	movl 12(%bx), %eax
