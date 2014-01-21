@@ -51,7 +51,6 @@
 # index in %dl, so we might as well put it there.
 # We start %dl at 0x7F to simplify some code later.
 
-	mov $0x42, %ah
 	mov $0x7f, %dl
 # Build a thing in memory (it's more or less irrelevant where we put it,
 # since it's not like there's anyone else's data for us to trash)
@@ -76,7 +75,8 @@
 # We can reuse this struct for every hard disk of course
 # Since we're doing the same thing to every disk
 	
-loop:	inc %dl
+loop:   mov $0x42, %ah
+	inc %dl
 #	call puts
 #	.string "\r Checking hard drive "
 #	mov %dl, %al
@@ -90,28 +90,58 @@ loop:	inc %dl
 	jc end
 # Otherwise check whether the drive is bootable (ends with 0x55 0xAA)
 # Since the sector starts at 0x7E10, we need to look at 0x800E and 0x800F
-# But in the other order (endianness yay)
 	
-	testb $0xaa, (0x800e)
-	jne loop
-	testb $0x55, (0x800f)
+	testw $0x55aa, (0x800e)
 	jne loop
 
 # Drive is bootable. Print a message to that effect
-	call puts
-	.string "\r\rBootable drive found\r"
+#	call puts
+#	.string "\r\rBootable drive found\r"
 
 # Do something here (find a bootable partition, load a kernel, etc)
 
-	
+	mov $0x7fce, %bx
+	mov $4, %ecx
+part_loop:
+# Check first partition. 0x80 in the first byte signifies bootable partition
+# 0x20 in the fourth byte signifies pintos partition
+	testb $0x80, 1(%bx)
+	jne fail
+#	call puts
+#	.string "\r\rNormal partition\r"
+	testb $0x20, 5(%bx)
+	jne fail
+	call puts
+	.string "\r\rPintos partition\r"
+# Since we've found a bootable partition, boot it! The LBA address and number
+# of sectors are in the relevant entry. We can use %ax as scratch space.
+	movl 12(%bx), %eax
+# This is the number of sectors. Check whether it's bigger than 1024
+	testl $0x0400, %eax
+	jle skip
+	movl $0x0400, %eax
+skip:	movw %ax, 0x7e02
+	movl 8(%bx), %eax
+# This is the LBA address of the starting sector, just throw it in
+	movl %eax, 0x7e08
+# And we want to read to somewhere else this time, so...
+	movl $0x20000000, 0x7e04
+	mov $0x42, %ah
+# And read from the disk again. DS:SI is still valid (we've never changed it)
+	int $0x13
+# Boot the kernel
+	jmp done
+# Increment %bx by the appropriate amount
+fail:
+	add $16, %bx
+	loop part_loop
+	jmp loop
 
 end:	call puts
-	.string "\rNo bootable drives found\r"
-# Print some sort of error message maybe?
+	.string "\r\rBoot failed\r"
 	int $0x18
 
-	# Stop the processor.
-	hlt
+done:	
 
 #### TODO:  LOADING CODE ENDS HERE!
 
