@@ -23,6 +23,14 @@ Ying-Yu Ho <yingyu@caltech.edu>
 >> If you have any preliminary comments on your submission, notes for the
 >> TAs, or extra credit, please give them here.
 
+There are many, many magic constants in the code. I blame Intel.
+
+I have assumed that the character set is ASCII. If you can find an EBCDIC
+x86 virtual machine to run this on, well, good for you. The relevant
+numbers to change for a different character set are the 0x1f on line 105
+(it's equal to 0x80 - 'a'), the 53 on line 107 (it's equal to 5 + '0')
+and the $10 on line 110 (it's equal to the newline character).
+
 >> Please cite any offline or online sources you consulted while
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course instructors.
@@ -77,7 +85,7 @@ Tell the BIOS that we can't find an operating system
 >> within the space allotted?  If so, what steps did you take to reduce
 >> the size of your bootstrap code?
 
-Not at all (well, besides needing to remove excess debugging output sometimes)
+Not particularly, but combining adjacent mov instructions was helpful.
 
 ---- RATIONALE ----
 
