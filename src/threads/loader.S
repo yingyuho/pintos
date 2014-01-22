@@ -55,7 +55,7 @@
 # Build a thing in memory (it's more or less irrelevant where we put it,
 # since it's not like there's anyone else's data for us to trash)
 	xor %cx, %cx
-	mov %cx, %es
+	mov %cx, %ds
 	mov $0x7e00, %si
 	
 # The struct starts at 0x7E00 and takes up 16 bytes.
