@@ -45,16 +45,23 @@ static void busy_wait(int64_t loops);
 static void real_time_sleep(int64_t num, int32_t denom);
 static void real_time_delay(int64_t num, int32_t denom);
 
-void alarm_init(void) {
+static void alarm_init(void);
+static bool alarm_less_eq(
+        const struct list_elem *a_, 
+        const struct list_elem *b_,
+        void *aux UNUSED);
+
+static void alarm_init(void) {
     list_init(&alarm_list);
     alarm_to_sleep = list_tail(&alarm_list);
     sema_init(&alarm_sema_w, 1);
     sema_init(&alarm_sema_r, 0);
 }
 
-bool alarm_less_eq(const struct list_elem *a_, 
-                   const struct list_elem *b_,
-                   void *aux UNUSED) {
+static bool alarm_less_eq(
+        const struct list_elem *a_, 
+        const struct list_elem *b_,
+        void *aux UNUSED) {
     const struct alarm *a = list_entry(a_, struct alarm, elem);
     const struct alarm *b = list_entry(b_, struct alarm, elem);
     return a->expires_at <= b->expires_at;
