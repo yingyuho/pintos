@@ -8,6 +8,7 @@
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
+#include <list.h>
 #include "devices/pit.h"
 #include "threads/interrupt.h"
 #include "threads/synch.h"
@@ -27,14 +28,42 @@ static int64_t ticks;
 static unsigned loops_per_tick;
 
 static intr_handler_func timer_interrupt;
+
+struct alarm {
+    int64_t expires_at;
+    struct semaphore expired;
+    struct list_elem elem;
+};
+
+static struct semaphore alarm_sema_w;
+static struct semaphore alarm_sema_r;
+static struct list alarm_list;
+static struct list_elem *alarm_to_sleep;
+
 static bool too_many_loops(unsigned loops);
 static void busy_wait(int64_t loops);
 static void real_time_sleep(int64_t num, int32_t denom);
 static void real_time_delay(int64_t num, int32_t denom);
 
+void alarm_init(void) {
+    list_init(&alarm_list);
+    alarm_to_sleep = list_tail(&alarm_list);
+    sema_init(&alarm_sema_w, 1);
+    sema_init(&alarm_sema_r, 0);
+}
+
+bool alarm_less_eq(const struct list_elem *a_, 
+                   const struct list_elem *b_,
+                   void *aux UNUSED) {
+    const struct alarm *a = list_entry(a_, struct alarm, elem);
+    const struct alarm *b = list_entry(b_, struct alarm, elem);
+    return a->expires_at <= b->expires_at;
+}
+
 /*! Sets up the timer to interrupt TIMER_FREQ times per second,
     and registers the corresponding interrupt. */
 void timer_init(void) {
+    alarm_init();
     pit_configure_channel(0, 2, TIMER_FREQ);
     intr_register_ext(0x20, timer_interrupt, "8254 Timer");
 }
@@ -81,11 +110,16 @@ int64_t timer_elapsed(int64_t then) {
 /*! Sleeps for approximately TICKS timer ticks.  Interrupts must
     be turned on. */
 void timer_sleep(int64_t ticks) {
-    int64_t start = timer_ticks();
+    struct alarm a;
+    a.expires_at = timer_ticks() + ticks;
+    sema_init(&a.expired, 0);
+
+    sema_down(&alarm_sema_w);
+    alarm_to_sleep = &a.elem;
+    sema_up(&alarm_sema_r);
 
     ASSERT(intr_get_level() == INTR_ON);
-    while (timer_elapsed(start) < ticks) 
-        thread_yield();
+    sema_down(&a.expired);
 }
 
 /*! Sleeps for approximately MS milliseconds.  Interrupts must be turned on. */
@@ -136,10 +170,34 @@ void timer_ndelay(int64_t ns) {
 void timer_print_stats(void) {
     printf("Timer: %"PRId64" ticks\n", timer_ticks());
 }
-
+
 /*! Timer interrupt handler. */
 static void timer_interrupt(struct intr_frame *args UNUSED) {
+    struct alarm *a;
+    struct list_elem *e;
     ticks++;
+
+    if (sema_try_down(&alarm_sema_r)) {
+        list_insert_ordered(&alarm_list, alarm_to_sleep, alarm_less_eq, 0);
+        sema_up(&alarm_sema_w);
+    }
+
+    if (!list_empty(&alarm_list)) {
+        for (e = list_front(&alarm_list);
+             e != list_tail(&alarm_list);
+             e = list_next(e)) {
+
+            a = list_entry(e, struct alarm, elem);
+
+            if (ticks >= a->expires_at) {
+                sema_up(&a->expired);
+                list_remove(e);
+            } else {
+                break;
+            }
+        }
+    }
+
     thread_tick();
 }
 
