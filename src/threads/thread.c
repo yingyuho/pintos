@@ -348,6 +348,10 @@ void get_donated_priority(struct thread *t) {
 /*! Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority) {
   int old_priority = thread_current()->priority;
+
+  // Do nothing in MLFQS (multilevel feedback queue scheduler) mode
+  if (thread_mlfqs) { return; }
+
   thread_current()->priority = new_priority;
   if (old_priority < new_priority) {
     if (thread_current()->cur_pri < thread_current()->priority)
@@ -595,7 +599,7 @@ struct lock_elem {
 };
 
 
-
+
 /*! Offset of `stack' member within `struct thread'.
     Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof(struct thread, stack);
