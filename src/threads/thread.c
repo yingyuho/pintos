@@ -363,10 +363,11 @@ void thread_set_priority(int new_priority) {
     // This is easy if cur_pri was larger than old_priority (it stays the same)
     // and otherwise we have to iterate through held locks to check their
     // donations.
+    
     // Of course, we don't have to do that iteration atomically, because the
-    // list can't change and lock priority can only increase (Yes, you can
-    // get different answers, but it's not incorrect for you to give any of
-    // the possible answers, since they were correct at some point)
+    // list can't change and lock priority can only increase
+    // (It's not really a race condition; no matter when that increase happens
+    // we get the same result in the end)
     if (thread_current()->cur_pri == old_priority) {
       thread_current()->cur_pri = new_priority;
       // Look through locks to find the largest element
@@ -380,7 +381,8 @@ void thread_set_priority(int new_priority) {
 	  int p = list_entry(list_begin(z), struct thread, elem)->cur_pri;
 	  int i = intr_disable();
 	  // We do need to avoid a race condition here though (another thread
-	  // can increase our cur_pri; p is not really a problem).
+	  // can increase our cur_pri; p being increased doesn't matter,
+	  // because that will also update our cur_pri if needed.
 	  if (p > thread_current()->cur_pri)
 	    thread_current()->cur_pri = p;
 	  intr_set_level(i);
