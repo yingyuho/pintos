@@ -292,12 +292,12 @@ void lock_release(struct lock *lock) {
     if (thread_current()->locks) {
       list_remove(&lock->elem);
       // Update priority if necessary.
-      // I'm not really keeping enough state to check whether it's actually
-      // necessary (because I don't explicitly keep track of nested donations),
-      // so all I can do is check whether effective priority is higher
-      // than intrinsic priority.
+      // I'm only mostly convinced that this is right; it should be an
+      // invariant that the head of the waiters list has the highest
+      // nested priority donated through that lock.
       if ((!list_empty(&lock->semaphore.waiters)) && 
-	  (thread_current()->cur_pri != thread_current()->priority)) {
+	  // (thread_current()->cur_pri != thread_current()->priority)) {
+	  (thread_current()->cur_pri == list_entry(list_begin(&lock->semaphore.waiters), struct thread, elem)->cur_pri)) {
 	thread_current()->cur_pri = thread_current()->priority;
 	get_donated_priority(thread_current());
       }
