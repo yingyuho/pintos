@@ -101,6 +101,8 @@ struct thread {
 
   struct list *locks; /* Currently held locks */
   struct lock *bllock; /* Lock currently blocked on, if any */
+  struct semaphore *blsema; /* Ditto, but semaphore. The reason we still need
+			       the lock is to implement nesting */
     /**@}*/
 
     /*! Shared between thread.c and synch.c. */

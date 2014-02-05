@@ -362,7 +362,7 @@ void thread_set_priority(int new_priority) {
     // Of course, we don't have to do that iteration atomically, because the
     // list can't change and lock priority can only increase (Yes, you can
     // get different answers, but it's not incorrect for you to give any of
-    // the possible answers)
+    // the possible answers, since they were correct at some point)
     if (thread_current()->cur_pri == old_priority) {
       thread_current()->cur_pri = new_priority;
       // Look through locks to find the largest element

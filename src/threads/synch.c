@@ -76,6 +76,7 @@ void sema_down(struct semaphore *sema) {
     ASSERT(sema != NULL);
     ASSERT(!intr_context());
 
+    thread_current()->blsema = sema;
     old_level = intr_disable();
     while (sema->value == 0) {
       list_insert_ordered(&sema->waiters, &thread_current()->elem,
@@ -85,6 +86,7 @@ void sema_down(struct semaphore *sema) {
     }
     sema->value--;
     intr_set_level(old_level);
+    thread_current()->blsema = NULL;
 }
 
 /*! Down or "P" operation on a semaphore, but only if the
@@ -230,7 +232,14 @@ void lock_acquire(struct lock *lock) {
 	t = t->bllock->holder;
       }
       else {
-	// Since it's not blocked on a lock we have nothing more to do
+	// It might still be blocked on a semaphore (if it was blocked on
+	// a lock, then it will also be blocked on a semaphore; I don't feel
+	// like reordering the code to take advantage of this
+	if (t->blsema != NULL) {
+	  list_remove(&t->elem);
+	  list_insert_ordered(&(t->blsema->waiters), &t->elem,
+			      pri_less_func, 0);
+	}
 	break;
       }
     }
@@ -284,8 +293,8 @@ void lock_release(struct lock *lock) {
       list_remove(&lock->elem);
       // Update priority if necessary.
       // I'm not really keeping enough state to check whether it's actually
-      // necessary (because I don't keep track of nested donations), so
-      // all I can do is check whether effective priority is higher
+      // necessary (because I don't explicitly keep track of nested donations),
+      // so all I can do is check whether effective priority is higher
       // than intrinsic priority.
       if ((!list_empty(&lock->semaphore.waiters)) && 
 	  (thread_current()->cur_pri != thread_current()->priority)) {
