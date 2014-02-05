@@ -98,6 +98,9 @@ struct thread {
     int priority;                       /*!< Priority. */
   int cur_pri; /* Current priority; at least as large as priority */
     struct list_elem allelem;           /*!< List element for all threads list. */
+
+  struct list *locks; /* Currently held locks */
+  struct lock *bllock; /* Lock currently blocked on, if any */
     /**@}*/
 
     /*! Shared between thread.c and synch.c. */
@@ -136,6 +139,8 @@ void thread_block(void);
 void thread_unblock(struct thread *);
 
 void maybe_yield(void);
+void reinsert(struct thread*);
+void get_donated_priority(struct thread *);
 
 struct thread *thread_current (void);
 tid_t thread_tid(void);
