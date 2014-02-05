@@ -102,6 +102,10 @@ void thread_start(void) {
     struct semaphore idle_started;
     sema_init(&idle_started, 0);
     thread_create("idle", PRI_MIN, idle, &idle_started);
+    
+    /* Set up locks for the initial thread */
+    initial_thread->locks = palloc_get_page(0);
+    list_init(initial_thread->locks);
 
     /* Start preemptive thread scheduling. */
     intr_enable();
@@ -167,6 +171,8 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
 
     /* Initialize thread. */
     init_thread(t, name, priority);
+    t->locks = palloc_get_page(0);
+    list_init(t->locks);
     tid = t->tid = allocate_tid();
 
     /* Stack frame for kernel_thread(). */
@@ -235,6 +241,12 @@ void maybe_yield() {
     if (thread_current()->priority < list_entry(list_begin(&ready_list),
 				struct thread, elem)-> priority)
       thread_yield();
+}
+
+// Reschedule a thread (due to changed priority)
+void reinsert(struct thread *t) {
+  list_remove(&t->elem);
+  list_insert_ordered(&ready_list, &t->elem, pri_less_func, 0);
 }
 
 /*! Returns the name of the running thread. */
@@ -313,16 +325,33 @@ void thread_foreach(thread_action_func *func, void *aux) {
     }
 }
 
+/* Helper function to get donated priority from held locks */
+void get_donated_priority(struct thread *t) {
+  struct list_elem *e;
+  for ( e = list_begin(t->locks); 
+	    e != list_end(t->locks); e = list_next(e)) {
+	struct lock *l = list_entry(e, struct lock, elem);
+	// Check the "priority" of the lock, if any
+	struct list *z = &l->semaphore.waiters;
+	if (! list_empty(z)) {
+	  int p = list_entry(list_begin(z), struct thread, elem)->cur_pri;
+	  int i = intr_disable();
+	  // We do need to avoid a race condition here though (another thread
+	  // can increase our cur_pri; p is not really a problem).
+	  if (p > t->cur_pri)
+	    t->cur_pri = p;
+	  intr_set_level(i);
+	}
+      }
+}
+
 /*! Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority) {
   int old_priority = thread_current()->priority;
   thread_current()->priority = new_priority;
   if (old_priority < new_priority) {
-    // TODO: actually recalculate cur_pri if necessary
-    // It should just be the larger of cur_pri and new_priority though
-    // Things would be more complicated if we could change the priority of
-    // blocked threads, but, well, we can't.
-    thread_current()->cur_pri = thread_current()->priority;
+    if (thread_current()->cur_pri < thread_current()->priority)
+      thread_current()->cur_pri = thread_current()->priority;
   }
   // If priority decreased, check whether we still have the highest priority
   if (old_priority > new_priority) {
@@ -331,24 +360,36 @@ void thread_set_priority(int new_priority) {
     // and otherwise we have to iterate through held locks to check their
     // donations.
     // Of course, we don't have to do that iteration atomically, because the
-    // list can't change, lock priority can only increase, and the problem
-    // will always fix itself the next time around (the only case where you
-    // get a race condition is if a lock you already checked gets its
-    // priority boosted)
-    
-    thread_current()->cur_pri = thread_current()->priority;
-    if (!list_empty(&ready_list))
-    if (list_entry(list_front(&ready_list), struct thread, elem)->priority
-	> thread_current()->cur_pri) {
-      // Then we have to yield
-      thread_yield();
+    // list can't change and lock priority can only increase (Yes, you can
+    // get different answers, but it's not incorrect for you to give any of
+    // the possible answers)
+    if (thread_current()->cur_pri == old_priority) {
+      thread_current()->cur_pri = new_priority;
+      // Look through locks to find the largest element
+      struct list_elem *e;
+      for ( e = list_begin(thread_current()->locks); 
+	    e != list_end(thread_current()->locks); e = list_next(e)) {
+	struct lock *l = list_entry(e, struct lock, elem);
+	// Check the "priority" of the lock, if any
+	struct list *z = &l->semaphore.waiters;
+	if (! list_empty(z)) {
+	  int p = list_entry(list_begin(z), struct thread, elem)->cur_pri;
+	  int i = intr_disable();
+	  // We do need to avoid a race condition here though (another thread
+	  // can increase our cur_pri; p is not really a problem).
+	  if (p > thread_current()->cur_pri)
+	    thread_current()->cur_pri = p;
+	  intr_set_level(i);
+	}
+      }
     }
+    maybe_yield();
   }
 }
 
 /*! Returns the current thread's priority. */
 int thread_get_priority(void) {
-    return thread_current()->priority;
+    return thread_current()->cur_pri;
 }
 
 /*! Sets the current thread's nice value to NICE. */
@@ -447,7 +488,6 @@ static void init_thread(struct thread *t, const char *name, int priority) {
     t->priority = priority;
     t->cur_pri = priority;
     t->magic = THREAD_MAGIC;
-
     old_level = intr_disable();
     list_push_back(&all_list, &t->allelem);
     intr_set_level(old_level);
@@ -512,6 +552,7 @@ void thread_schedule_tail(struct thread *prev) {
     if (prev != NULL && prev->status == THREAD_DYING &&
         prev != initial_thread) {
         ASSERT(prev != cur);
+	palloc_free_page(prev->locks);
         palloc_free_page(prev);
     }
 }
@@ -547,6 +588,13 @@ static tid_t allocate_tid(void) {
 
     return tid;
 }
+
+struct lock_elem {
+  struct lock *l;
+  struct list_elem elem;
+};
+
+
 
 /*! Offset of `stack' member within `struct thread'.
     Used by switch.S, which can't figure it out on its own. */

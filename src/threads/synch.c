@@ -192,28 +192,61 @@ void lock_init(struct lock *lock) {
     interrupts disabled, but interrupts will be turned back on if
     we need to sleep. */
 void lock_acquire(struct lock *lock) {
-  //int i;  
+  int i;  
     ASSERT(lock != NULL);
     ASSERT(!intr_context());
     ASSERT(!lock_held_by_current_thread(lock));
 
-    /* Since we're going to wait on this lock, update priority if higher.
-       Nested donation can be handled elegantly by using our effective
-       priority instead of intrinsic priority. */
-    /* Disable interrupts to avoid a stupid race condition (if you get
-       preempted in the middle of this and another process with priority
-       higher than this tries to acquire the lock as well, things will not
-       work. */
-    /*
+    /* Since we're going to wait on this lock, update its holder's priority if
+       higher. Nested donation can be handled somewhat elegantly by using our
+       effective priority instead of intrinsic priority.
+       Unfortunately we still have to do a partial traversal of the tree
+       (formed by the locks and threads), because the lock's holder might
+       also be blocked. We can keep track of this state in the thread data.
+       Note that the design was chosen to try to minimize the amount of tree
+       traversal (especially since it needs to be done with interrupts
+       disabled).
+       A limit to nesting can easily be implemented here if desired. */
     i = intr_disable();
-    if (thread_get_priority() > lock->priority)
-      lock->priority = thread_get_priority();
-      intr_set_level(i); */
+    struct thread *t = lock->holder;
+    while (t != NULL) {
+      if (t->cur_pri < thread_current()->cur_pri) {
+	t->cur_pri = thread_current()->cur_pri;
+	if (t->status == THREAD_READY) {
+	  // Then we need to reschedule it. There's no real nicer way of doing
+	  // this than to just remove it and put it back.
+	  reinsert(t);
+	}
+      }
+      else
+	break;
+      if (t->bllock != NULL) {
+	// Since it's blocked, update its priority inside that lock as well
+	list_remove(&t->elem);
+	list_insert_ordered(&(t->bllock->semaphore.waiters), &t->elem,
+			    pri_less_func, 0);
+
+	// Go to the next thread
+	t = t->bllock->holder;
+      }
+      else {
+	// Since it's not blocked on a lock we have nothing more to do
+	break;
+      }
+    }
+    // Set this thread to be blocked on the lock
+    thread_current()->bllock = lock;
+    intr_set_level(i);
     sema_down(&lock->semaphore);
+    thread_current()->bllock = NULL;
     lock->holder = thread_current();
+    if(thread_current()->locks) // There is one case where this isn't true,
+      // which is while calling thread_init... because we haven't allocated
+      // locks. locks is initialized for the initial thread in thread_start(),
+      // because we need the page table to exist first.
+      list_push_back(thread_current()->locks, &lock->elem);
     // Since we have the lock, that means all other processes blocked on this
-    // lock have at most the same priority; therefore we don't have to bother
-    // updating anything.
+    // lock have at most the same priority, so we don't need to update that.
 }
 
 /*! Tries to acquires LOCK and returns true if successful or false
@@ -229,8 +262,10 @@ bool lock_try_acquire(struct lock *lock) {
     ASSERT(!lock_held_by_current_thread(lock));
 
     success = sema_try_down(&lock->semaphore);
-    if (success)
+    if (success) {
       lock->holder = thread_current();
+      list_push_back(thread_current()->locks, &lock->elem);
+    }
 
     return success;
 }
@@ -245,6 +280,19 @@ void lock_release(struct lock *lock) {
     ASSERT(lock_held_by_current_thread(lock));
 
     lock->holder = NULL;
+    if (thread_current()->locks) {
+      list_remove(&lock->elem);
+      // Update priority if necessary.
+      // I'm not really keeping enough state to check whether it's actually
+      // necessary (because I don't keep track of nested donations), so
+      // all I can do is check whether effective priority is higher
+      // than intrinsic priority.
+      if ((!list_empty(&lock->semaphore.waiters)) && 
+	  (thread_current()->cur_pri != thread_current()->priority)) {
+	thread_current()->cur_pri = thread_current()->priority;
+	get_donated_priority(thread_current());
+      }
+    }
     sema_up(&lock->semaphore);
 }
 
@@ -318,9 +366,8 @@ void cond_wait(struct condition *cond, struct lock *lock) {
   
     sema_init(&waiter.semaphore, 0);
     list_push_back(&cond->waiters, &waiter.elem);
-    /* As a demonstration of an alternate solution, this time we don't bother
-       keeping the list sorted. It turns out to have the same time complexity
-    */
+    /* Here we don't need to keep the list sorted for anything else (for the
+       semaphore O(1) access to the highest priority thread is useful) */
     lock_release(lock);
     sema_down(&waiter.semaphore);
     lock_acquire(lock);
