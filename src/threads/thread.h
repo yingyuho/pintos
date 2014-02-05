@@ -96,6 +96,7 @@ struct thread {
     char name[16];                      /*!< Name (for debugging purposes). */
     uint8_t *stack;                     /*!< Saved stack pointer. */
     int priority;                       /*!< Priority. */
+  int cur_pri; /* Current priority; at least as large as priority */
     struct list_elem allelem;           /*!< List element for all threads list. */
     /**@}*/
 
@@ -133,6 +134,8 @@ tid_t thread_create(const char *name, int priority, thread_func *, void *);
 
 void thread_block(void);
 void thread_unblock(struct thread *);
+
+void maybe_yield(void);
 
 struct thread *thread_current (void);
 tid_t thread_tid(void);

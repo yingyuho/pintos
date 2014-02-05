@@ -186,6 +186,10 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
 
     /* Add to run queue. */
     thread_unblock(t);
+    
+    // Yield if the new thread has higher priority
+    if (thread_current()->priority < priority)
+      thread_yield();
 
     return tid;
 }
@@ -217,9 +221,20 @@ void thread_unblock(struct thread *t) {
 
     old_level = intr_disable();
     ASSERT(t->status == THREAD_BLOCKED);
-    list_push_back(&ready_list, &t->elem);
+    list_insert_ordered(&ready_list, &t->elem, pri_less_func, 0);
     t->status = THREAD_READY;
     intr_set_level(old_level);
+    // Well, since we can't preempt the calling thread here, we have
+    // to do it at the places where we call it...
+}
+
+/* Yields if the current thread has lower priority than the first thread in
+   the ready queue and not in interrupt context */
+void maybe_yield() {
+  if ((! intr_context()) && (! list_empty(&ready_list)))
+    if (thread_current()->priority < list_entry(list_begin(&ready_list),
+				struct thread, elem)-> priority)
+      thread_yield();
 }
 
 /*! Returns the name of the running thread. */
@@ -277,8 +292,8 @@ void thread_yield(void) {
     ASSERT(!intr_context());
 
     old_level = intr_disable();
-    if (cur != idle_thread) 
-        list_push_back(&ready_list, &cur->elem);
+    if (cur != idle_thread)
+      list_insert_ordered(&ready_list, &cur->elem, pri_less_func, 0);
     cur->status = THREAD_READY;
     schedule();
     intr_set_level(old_level);
@@ -300,7 +315,35 @@ void thread_foreach(thread_action_func *func, void *aux) {
 
 /*! Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority) {
-    thread_current()->priority = new_priority;
+  int old_priority = thread_current()->priority;
+  thread_current()->priority = new_priority;
+  if (old_priority < new_priority) {
+    // TODO: actually recalculate cur_pri if necessary
+    // It should just be the larger of cur_pri and new_priority though
+    // Things would be more complicated if we could change the priority of
+    // blocked threads, but, well, we can't.
+    thread_current()->cur_pri = thread_current()->priority;
+  }
+  // If priority decreased, check whether we still have the highest priority
+  if (old_priority > new_priority) {
+    // TODO: actually recalculate cur_pri if necessary
+    // This is easy if cur_pri was larger than old_priority (it stays the same)
+    // and otherwise we have to iterate through held locks to check their
+    // donations.
+    // Of course, we don't have to do that iteration atomically, because the
+    // list can't change, lock priority can only increase, and the problem
+    // will always fix itself the next time around (the only case where you
+    // get a race condition is if a lock you already checked gets its
+    // priority boosted)
+    
+    thread_current()->cur_pri = thread_current()->priority;
+    if (!list_empty(&ready_list))
+    if (list_entry(list_front(&ready_list), struct thread, elem)->priority
+	> thread_current()->cur_pri) {
+      // Then we have to yield
+      thread_yield();
+    }
+  }
 }
 
 /*! Returns the current thread's priority. */
@@ -402,6 +445,7 @@ static void init_thread(struct thread *t, const char *name, int priority) {
     strlcpy(t->name, name, sizeof t->name);
     t->stack = (uint8_t *) t + PGSIZE;
     t->priority = priority;
+    t->cur_pri = priority;
     t->magic = THREAD_MAGIC;
 
     old_level = intr_disable();
