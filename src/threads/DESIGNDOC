@@ -149,9 +149,17 @@ tree traversal while maintaining as little additional state as possible.
 I found it necessary to maintain a list of locks held by a thread
 (conceptually, the list of children nodes) as well as the current
 effective priority (i.e. the maximum priority of all threads in the
-subtree). The only place the tree is actually traversed is lock_release()
+subtree). The only place the tree is actually traversed is lock_acquire()
 (and even then it traverses upward, so complexity is limited by tree depth)
 the rest of the operations can be done using just the additional state.
+
+A useful invariant is that the priority of any thread is the
+largest of its base priority and the effective priorities of the first
+thread blocked on each lock held by it; this means we never need to
+traverse downwards (notice that the effective priorities can't decrease as
+long as they're blocked, because we don't provide an interface to change
+another thread's priority) because we have all the necessary information about
+each subtree.
 
 			  ADVANCED SCHEDULER
 			  ==================
