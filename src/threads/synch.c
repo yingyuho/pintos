@@ -374,9 +374,13 @@ void cond_wait(struct condition *cond, struct lock *lock) {
     ASSERT(lock_held_by_current_thread(lock));
   
     sema_init(&waiter.semaphore, 0);
+    int i = intr_disable();
     list_push_back(&cond->waiters, &waiter.elem);
+    intr_set_level(i);
     /* Here we don't need to keep the list sorted for anything else (for the
-       semaphore O(1) access to the highest priority thread is useful) */
+       semaphore O(1) access to the highest priority thread is useful); if
+       we tried we would have to keep track of which condition variables each
+       lock is used for, which incurs some overhead.*/
     lock_release(lock);
     sema_down(&waiter.semaphore);
     lock_acquire(lock);
