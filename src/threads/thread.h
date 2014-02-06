@@ -150,6 +150,7 @@ void thread_unblock(struct thread *);
 void maybe_yield(void);
 void reinsert(struct thread*);
 void get_donated_priority(struct thread *);
+int get_thread_priority(struct thread *);
 
 struct thread *thread_current (void);
 tid_t thread_tid(void);

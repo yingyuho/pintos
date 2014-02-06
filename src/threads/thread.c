@@ -107,7 +107,7 @@ void thread_init(void) {
     initial_thread->tid = allocate_tid();
 
     /* Initialize MLFQS variable(s) */
-    load_avg = fp_from_int(0);
+    //load_avg = fp_from_int(0);
 }
 
 /*! Starts preemptive thread scheduling by enabling interrupts.
@@ -119,8 +119,13 @@ void thread_start(void) {
     thread_create("idle", PRI_MIN, idle, &idle_started);
     
     /* Set up locks for the initial thread */
-    initial_thread->locks = palloc_get_page(0);
-    list_init(initial_thread->locks);
+    if (!thread_mlfqs) {
+      initial_thread->locks = palloc_get_page(0);
+      list_init(initial_thread->locks);
+    }
+    else {
+      load_avg = fp_from_int(0);
+    }
 
     /* Start preemptive thread scheduling. */
     intr_enable();
@@ -172,14 +177,14 @@ void tick_mlfqs(void) {
 
     /* Do once per 4 ticks */
     if (timer_ticks() % 4 == 0) {
-        t0->cur_pri = t0->priority = auto_priority(t0);
+        t0->priority = auto_priority(t0);
 
         if (!list_empty(&ready_list)) {
             for (e = list_front(&ready_list); 
                  e != list_tail(&ready_list); 
                  e = list_next(e)) {
                 t1 = list_entry(e, struct thread, elem);
-                t1->cur_pri = t1->priority = auto_priority(t1);
+                t1->priority = auto_priority(t1);
                 //reinsert(t1);
 		/* Sorting the entire list is faster (O(n log n) instead
 		   of O(n^2) */
@@ -270,10 +275,11 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
     t->nice = 0;
     if (thread_mlfqs)
         init_thread(t, name, auto_priority(t));
-    else
+    else {
         init_thread(t, name, priority);
-    t->locks = palloc_get_page(0);
-    list_init(t->locks);
+	t->locks = palloc_get_page(0);
+	list_init(t->locks);
+    }
     tid = t->tid = allocate_tid();
 
     /* Stack frame for kernel_thread(). */
@@ -345,7 +351,8 @@ void maybe_yield() {
 }
 
 // Reschedule a thread (due to changed priority)
-// Only called with interrupts disabled (usually a good idea while working
+// Should only be called with interrupts disabled
+// (usually a good idea while working
 // with lists, especially static or global ones)
 void reinsert(struct thread *t) {
   list_remove(&t->elem);
@@ -504,9 +511,17 @@ void set_priority(int new_priority) {
   }
 }
 
+int get_thread_priority(struct thread *t) {
+  if (thread_mlfqs)
+    return t->priority;
+  return t->cur_pri;
+}
+
 /*! Returns the current thread's priority. */
 int thread_get_priority(void) {
-    return thread_current()->cur_pri;
+  if (thread_mlfqs)
+    return thread_current()->priority;
+  return thread_current()->cur_pri;
 }
 
 /*! Sets the current thread's nice value to NICE. */
@@ -517,7 +532,7 @@ void thread_set_nice(int nice) {
     if (nice < NICE_MIN)
         nice = NICE_MIN;
     t->nice = nice;
-    t->cur_pri = t->priority = auto_priority(t);
+    t->priority = auto_priority(t);
     maybe_yield();
 }
 
@@ -673,7 +688,8 @@ void thread_schedule_tail(struct thread *prev) {
     if (prev != NULL && prev->status == THREAD_DYING &&
         prev != initial_thread) {
         ASSERT(prev != cur);
-	palloc_free_page(prev->locks);
+	if (!thread_mlfqs)
+	  palloc_free_page(prev->locks);
         palloc_free_page(prev);
     }
 }

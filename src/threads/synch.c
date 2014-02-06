@@ -61,7 +61,7 @@ bool pri_less_func(const struct list_elem *a,
   struct thread *ta, *tb;
   ta = list_entry(a, struct thread, elem);
   tb = list_entry(b, struct thread, elem);
-  return (ta->cur_pri > tb->cur_pri);
+  return (get_thread_priority(ta) > get_thread_priority(tb));
 }
 
 /*! Down or "P" operation on a semaphore.  Waits for SEMA's value
@@ -211,6 +211,7 @@ void lock_acquire(struct lock *lock) {
        A limit to nesting can easily be implemented here if desired. */
     i = intr_disable();
     struct thread *t = lock->holder;
+    if (!thread_mlfqs) { // Not even going to bother
     while (t != NULL) {
       if (t->cur_pri < thread_current()->cur_pri) {
 	t->cur_pri = thread_current()->cur_pri;
@@ -242,6 +243,7 @@ void lock_acquire(struct lock *lock) {
 	}
 	break;
       }
+    }
     }
     // Set this thread to be blocked on the lock
     thread_current()->bllock = lock;
@@ -342,7 +344,7 @@ static bool cond_less_func(const struct list_elem *a,
   ta = list_entry(list_begin(&sa->semaphore.waiters), struct thread, elem);
   tb = list_entry(list_begin(&sb->semaphore.waiters), struct thread, elem);
   
-  return (ta->cur_pri > tb->cur_pri);
+  return (get_thread_priority(ta) > get_thread_priority(tb));
 }
 
 /*! Atomically releases LOCK and waits for COND to be signaled by
