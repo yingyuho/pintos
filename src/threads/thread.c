@@ -426,11 +426,12 @@ void get_donated_priority(struct thread *t) {
 	struct lock *l = list_entry(e, struct lock, elem);
 	// Check the "priority" of the lock, if any
 	struct list *z = &l->semaphore.waiters;
-	if (! list_empty(z)) {
-	  int p = list_entry(list_begin(z), struct thread, elem)->cur_pri;
+	if (! list_empty(z)) {	  
 	  int i = intr_disable();
+	  int p = list_entry(list_begin(z), struct thread, elem)->cur_pri;
 	  // We do need to avoid a race condition here though (another thread
-	  // can increase our cur_pri; p is not really a problem).
+	  // can increase our cur_pri, and then we'll set it to the wrong
+	  // value).
 	  if (p > t->cur_pri)
 	    t->cur_pri = p;
 	  intr_set_level(i);

@@ -80,6 +80,15 @@ static struct list_elem *alarm_to_sleep;
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+New members in struct thread:
+  struct list *locks; (list of locks currently held by thread)
+  struct lock *bllock; (lock thread is blocked on)
+  struct semaphore *blsema; (semaphore thread is blocked on)
+  int cur_pri; (effective priority)
+  
+New member in struct lock:
+  struct list_elem elem; (list element for the list in threads)
+
 >> B2: Explain the data structure used to track priority donation.
 >> Use ASCII art to diagram a nested donation.  (Alternately, submit a
 >> .png file.)
@@ -87,7 +96,11 @@ static struct list_elem *alarm_to_sleep;
 Priority donation is tracked with an integer. ("structure"?)
 Nested donation is also tracked with an integer; the cur_pri variable
 is simply the largest appliable priority (i.e. of the thread itself
-and all threads blocked on locks held by the thread)
+and all threads blocked on locks held by the thread). A sort of
+implicit tree is formed by the held locks and threads blocked on them;
+priority donation is done by donating to the "parent" of the thread
+(i.e. the one holding the lock it's blocked on) and repeating if
+that thread is also blocked to implement nested donation.
 
 ---- ALGORITHMS ----
 
@@ -107,18 +120,21 @@ A priority donation is caused when the lock is already held by
 another thread. If this is the case, then we check whether the thread
 holding the lock has lower (effective) priority than the calling thread;
 if so, we set that thread's priority to the calling thread's priority.
-Nested donation is handled partially by iterating (if the thread holding
-the lock is also blocked on a lock, then we should donate to the thread
-holding that lock and so on) and partially by donating the effective
-priority (this obviates traversing the tree in the other direction).
+(All of this has to be done with interrupts disabled; otherwise the
+we can end up donating priority to a thread that no longer holds the
+lock) Nested donation is handled partly by iterating (if the thread 
+holding the lock is also blocked on a lock, then we should donate to the
+thread holding that lock and so on) and partly by donating the effective
+priority (this removes the need to actually traverse any subtree).
 
 >> B5: Describe the sequence of events when lock_release() is called
 >> on a lock that a higher-priority thread is waiting for.
 
 The lock_release code itself doesn't check for a higher priority
-thread, but sema_up() calls maybe_yield(), which will yield if a higher
-priority thread is now on the ready queue (i.e. if there was a higher
-priority thread waiting on the lock).
+thread (the only change in it is to recalculate the effective priority
+if necessary), but sema_up() calls maybe_yield(), which will yield if a
+higher priority thread is now on the ready queue (i.e. if there was a
+higher priority thread waiting on the lock).
 
 ---- SYNCHRONIZATION ----
 
@@ -130,7 +146,10 @@ There is just one race condition possible, which is if the thread's
 effective priority is modified between checking whether a lock's
 priority is larger than effective priority and setting effective
 priority to that lock's priority. It is avoided by disabling interrupts
-for those two statements.
+for those two statements. (The case where it can happen is that we
+are preempted by another thread with the same priority, which sets its own
+priority higher and then donates to this thread and yields; this is kind
+of contrived, but you could end up with priority inversion)
 It could be avoided with a lock on the cur_pri variable, which would
 cause more overhead.
 
@@ -142,24 +161,27 @@ cause more overhead.
 The locks and threads form a sort of implicit tree; priority donation is
 conceptually handled via tree traversal. However, actual tree traversal
 must be done with interrupts disabled to prevent race conditions, so we
-really want to do it as little as possible.
+don't actually want to do that. Instead, we can keep internal state
+relating to subtrees, which can be updated due to assumptions we can make
+about threads (they can't decrease priority while blocked, for example)
 
-The main goal of the design was to minimize the amount of (explicit)
-tree traversal while maintaining as little additional state as possible.
-I found it necessary to maintain a list of locks held by a thread
-(conceptually, the list of children nodes) as well as the current
-effective priority (i.e. the maximum priority of all threads in the
-subtree). The only place the tree is actually traversed is lock_acquire()
-(and even then it traverses upward, so complexity is limited by tree depth)
-the rest of the operations can be done using just the additional state.
+The main goal of the design was to eliminate tree traversal while 
+maintaining as little additional state as possible. (As well as avoiding
+expensive operations, like iterating over all threads) I found it necessary
+to maintain a list of locks held by a thread (conceptually, the list of
+children nodes) as well as the current effective priority (i.e. the maximum
+priority of all threads in the subtree). The only place the tree is actually
+worked with is lock_acquire() (and even then it only goes upward, so
+complexity is limited by tree depth); the rest of the operations can be done
+using just the additional state.
 
 A useful invariant is that the priority of any thread is the
 largest of its base priority and the effective priorities of the first
 thread blocked on each lock held by it; this means we never need to
-traverse downwards (notice that the effective priorities can't decrease as
-long as they're blocked, because we don't provide an interface to change
-another thread's priority) because we have all the necessary information about
-each subtree.
+traverse downwards because we have all the necessary information about
+each subtree, as long as they're updated correctly by lock_acquire().
+Another is that only the root of a tree can be removed (all other threads
+are blocked)
 
 			  ADVANCED SCHEDULER
 			  ==================
