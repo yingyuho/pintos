@@ -29,16 +29,22 @@ static unsigned loops_per_tick;
 
 static intr_handler_func timer_interrupt;
 
+// alarm clock with the semaphore that makes a thread sleep
 struct alarm {
     int64_t expires_at;
     struct semaphore expired;
     struct list_elem elem;
 };
 
+// the list of alarm to be checked for expiration
+static struct list alarm_list;
+
+// the next alarm to be put into alarm_list by timer_interrupt()
+static struct list_elem *alarm_to_sleep;
+
+// writing and reading semaphores for alarm_to_sleep
 static struct semaphore alarm_sema_w;
 static struct semaphore alarm_sema_r;
-static struct list alarm_list;
-static struct list_elem *alarm_to_sleep;
 
 static bool too_many_loops(unsigned loops);
 static void busy_wait(int64_t loops);
@@ -121,6 +127,8 @@ void timer_sleep(int64_t ticks) {
     a.expires_at = timer_ticks() + ticks;
     sema_init(&a.expired, 0);
 
+    // only one alarm can be passed each tick
+    // other threads need to wait until timer_interrupt() takes it away
     sema_down(&alarm_sema_w);
     alarm_to_sleep = &a.elem;
     sema_up(&alarm_sema_r);
@@ -184,11 +192,13 @@ static void timer_interrupt(struct intr_frame *args UNUSED) {
     struct list_elem *e;
     ticks++;
 
+    // put alarm in the list in ascending order of expiration
     if (sema_try_down(&alarm_sema_r)) {
         list_insert_ordered(&alarm_list, alarm_to_sleep, alarm_less_eq, 0);
         sema_up(&alarm_sema_w);
     }
 
+    // check alarms and wake up processes
     if (!list_empty(&alarm_list)) {
         for (e = list_front(&alarm_list);
              e != list_tail(&alarm_list);
@@ -200,6 +210,7 @@ static void timer_interrupt(struct intr_frame *args UNUSED) {
                 sema_up(&a->expired);
                 list_remove(e);
             } else {
+                // I can do so because alarms are sorted
                 break;
             }
         }

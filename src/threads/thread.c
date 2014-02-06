@@ -170,12 +170,14 @@ void thread_tick(void) {
 void tick_mlfqs(void) {
     struct thread *t0 = thread_current();
     struct thread *t1;
-    int32_t ready_running_threads;
-    fp_t cpu_damp;
-    //fp_t pri;
     struct list_elem *e;
 
+    int32_t ready_running_threads;
+    // damping factor for recent_cpu per second
+    fp_t cpu_damp;
+
     /* Do once per 4 ticks */
+    /* Update priorities */
     if (timer_ticks() % 4 == 0) {
         t0->priority = auto_priority(t0);
 
@@ -198,24 +200,18 @@ void tick_mlfqs(void) {
 	
     }
 
+    /* recent CPU time += 1 for the running thread per tick */
     if (t0 != idle_thread)
         t0->recent_cpu = fp_add_int(t0->recent_cpu, 1);
 
     /* Do once per second */
     if (timer_ticks() % TIMER_FREQ == 0) {
         /* Count threads that are running or ready to run */
-      ready_running_threads = (t0 != idle_thread) + list_size(&ready_list);
-
-	/*
-        if (!list_empty(&ready_list)) {
-            for (e = list_front(&ready_list); 
-                 e != list_tail(&ready_list); 
-                 e = list_next(e)) {
-                ++ready_running_threads;
-            }
-	    } */
+        ready_running_threads = (t0 != idle_thread) + list_size(&ready_list);
 
         cpu_damp = fp_div_fp(2 * load_avg, fp_add_int(2 * load_avg, 1));
+
+        /* Damp recent CPU time for running and ready threads */
 
         t0->recent_cpu = fp_add_int(fp_mul_fp(cpu_damp, t0->recent_cpu), t0->nice);
 
@@ -228,6 +224,7 @@ void tick_mlfqs(void) {
             }
         }
 
+        /* Update current system load average */
         load_avg = fp_add_fp(fp_mul_fp(LOAD_AVG_OLD, load_avg), 
                             fp_mul_int(LOAD_AVG_NEW, ready_running_threads));
     }
