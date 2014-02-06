@@ -340,6 +340,8 @@ void maybe_yield() {
 }
 
 // Reschedule a thread (due to changed priority)
+// Only called with interrupts disabled (usually a good idea while working
+// with lists, especially static or global ones)
 void reinsert(struct thread *t) {
   list_remove(&t->elem);
   list_insert_ordered(&ready_list, &t->elem, pri_less_func, 0);
@@ -479,8 +481,8 @@ void set_priority(int new_priority) {
 	// Check the "priority" of the lock, if any
 	struct list *z = &l->semaphore.waiters;
 	if (! list_empty(z)) {
-	  int p = list_entry(list_begin(z), struct thread, elem)->cur_pri;
 	  int i = intr_disable();
+	  int p = list_entry(list_begin(z), struct thread, elem)->cur_pri;
 	  // We do need to avoid a race condition here though (another thread
 	  // can increase our cur_pri; p being increased doesn't matter,
 	  // because that will also update our cur_pri if needed.
