@@ -180,14 +180,17 @@ void tick_mlfqs(void) {
                  e = list_next(e)) {
                 t1 = list_entry(e, struct thread, elem);
                 t1->cur_pri = t1->priority = auto_priority(t1);
-                reinsert(t1);
+                //reinsert(t1);
+		/* Sorting the entire list is faster (O(n log n) instead
+		   of O(n^2) */
             }
-
+	    list_sort(&ready_list, pri_less_func, 0);
             t1 = list_entry(list_front(&ready_list), struct thread, elem);
 
             if (t0->priority < t1->priority)
                 intr_yield_on_return();
         }
+	
     }
 
     if (t0 != idle_thread)
@@ -196,15 +199,16 @@ void tick_mlfqs(void) {
     /* Do once per second */
     if (timer_ticks() % TIMER_FREQ == 0) {
         /* Count threads that are running or ready to run */
-        ready_running_threads = (t0 != idle_thread);
+      ready_running_threads = (t0 != idle_thread) + list_size(&ready_list);
 
+	/*
         if (!list_empty(&ready_list)) {
             for (e = list_front(&ready_list); 
                  e != list_tail(&ready_list); 
                  e = list_next(e)) {
                 ++ready_running_threads;
             }
-        }
+	    } */
 
         cpu_damp = fp_div_fp(2 * load_avg, fp_add_int(2 * load_avg, 1));
 
@@ -457,6 +461,8 @@ void set_priority(int new_priority) {
   int old_priority = thread_current()->priority;
 
   thread_current()->priority = new_priority;
+  if (!thread_mlfqs) { /* this is a hack, you shouldn't be calling this at all
+			*/
   if (old_priority < new_priority) {
     if (thread_current()->cur_pri < thread_current()->priority)
       thread_current()->cur_pri = thread_current()->priority;
@@ -494,6 +500,7 @@ void set_priority(int new_priority) {
       }
     }
     maybe_yield();
+  }
   }
 }
 
