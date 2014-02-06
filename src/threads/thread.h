@@ -101,6 +101,7 @@ struct thread {
     char name[16];                      /*!< Name (for debugging purposes). */
     uint8_t *stack;                     /*!< Saved stack pointer. */
     int priority;                       /*!< Priority. */
+    int niceness;                       /*!< Niceness. */
     int cur_pri; /* Current priority; at least as large as priority */
     int recent_cpu; /* Amount of CPU time used recently */
     struct list_elem allelem;           /*!< List element for all threads list. */
