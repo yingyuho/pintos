@@ -131,7 +131,7 @@ Priority donation is tracked with an integer. ("structure"?)
 Nested donation is also tracked with an integer; the cur_pri variable
 is simply the largest appliable priority (i.e. of the thread itself
 and all threads blocked on locks held by the thread). A sort of
-implicit tree is formed by the held locks and threads blocked on them;
+implicit tree is formed by the held locks and blocked threads;
 priority donation is done by donating to the "parent" of the thread
 (i.e. the one holding the lock it's blocked on) and repeating if
 that thread is also blocked to implement nested donation.
@@ -159,7 +159,7 @@ that thread is also blocked to implement nested donation.
   |33        33         |
   \---------------------/
 
-(Updating is done by going upward in the tree, so the actual structure
+(Updating is done by going upward in the tree, so the actual order
 of the list locks is irrelevant. Each struct thread keeps a pointer
 bllock which points to the lock it's waiting on)
 ---- ALGORITHMS ----
@@ -182,19 +182,24 @@ holding the lock has lower (effective) priority than the calling thread;
 if so, we set that thread's priority to the calling thread's priority.
 (All of this has to be done with interrupts disabled; otherwise the
 we can end up donating priority to a thread that no longer holds the
-lock) Nested donation is handled partly by iterating (if the thread 
+lock).
+
+Nested donation is handled partly by iterating (if the thread 
 holding the lock is also blocked on a lock, then we should donate to the
 thread holding that lock and so on) and partly by donating the effective
-priority (this removes the need to actually traverse any subtree).
+priority (this removes the need to actually traverse any subtree). The
+key is to maintain the invariant that cur_pri is the highest priority of
+every thread in the subtree; as long as this is true, updates are easy.
+(The fact that this also makes get_thread_priority() O(1) is a bonus)
 
 >> B5: Describe the sequence of events when lock_release() is called
 >> on a lock that a higher-priority thread is waiting for.
 
-The lock_release code itself doesn't check for a higher priority
+The lock_release() code itself doesn't check for a higher priority
 thread (the only change in it is to recalculate the effective priority
-if necessary), but sema_up() calls maybe_yield(), which will yield if a
-higher priority thread is now on the ready queue (i.e. if there was a
-higher priority thread waiting on the lock).
+of the current thread if necessary), but sema_up() calls maybe_yield(),
+which will yield if a higher priority thread is now on the ready queue
+(i.e. if there was a higher priority thread waiting on the lock).
 
 ---- SYNCHRONIZATION ----
 
@@ -206,10 +211,11 @@ There is just one race condition possible, which is if the thread's
 effective priority is modified between checking whether a lock's
 priority is larger than effective priority and setting effective
 priority to that lock's priority. It is avoided by disabling interrupts
-for those two statements. (The case where it can happen is that we
-are preempted by another thread with the same priority, which sets its own
+for those two statements. (The problem that can happen is that we
+switch to another thread with the same priority, which sets its own
 priority higher and then donates to this thread and yields; this is kind
 of contrived, but you could end up with priority inversion)
+
 It could be avoided with a lock on the cur_pri variable, which would
 cause more overhead.
 
@@ -222,26 +228,31 @@ The locks and threads form a sort of implicit tree; priority donation is
 conceptually handled via tree traversal. However, actual tree traversal
 must be done with interrupts disabled to prevent race conditions, so we
 don't actually want to do that. Instead, we can keep internal state
-relating to subtrees, which can be updated due to assumptions we can make
-about threads (they can't decrease priority while blocked, for example)
+relating to subtrees, and updates can be simplified due to assumptions we
+can make about threads (they can't decrease priority while blocked, for
+example) and some invariants that we maintain.
 
 The main goal of the design was to eliminate tree traversal while 
 maintaining as little additional state as possible. (As well as avoiding
 expensive operations, like iterating over all threads) I found it necessary
 to maintain a list of locks held by a thread (conceptually, the list of
-children nodes) as well as the current effective priority (i.e. the maximum
-priority of all threads in the subtree). The only place the tree is actually
-worked with is lock_acquire() (and even then it only goes upward, so
-complexity is limited by tree depth); the rest of the operations can be done
-using just the additional state.
+children nodes), the current effective priority (i.e. the maximum priority
+of all threads in the subtree), and the current semaphore and lock the thread
+is blocked on (if any; this corresponds to the parent node).
 
-A useful invariant is that the priority of any thread is the
-largest of its base priority and the effective priorities of the first
-thread blocked on each lock held by it; this means we never need to
-traverse downwards because we have all the necessary information about
-each subtree, as long as they're updated correctly by lock_acquire().
-Another is that only the root of a tree can be removed (all other threads
-are blocked)
+The only place the tree is actually worked with is lock_acquire() (and even
+then it only goes upward, so complexity is limited by tree depth); the rest
+of the operations can be done using just the additional state.
+
+The list of waiting threads for a semaphore is kept sorted because O(1)
+access to the priority donated through the lock  is useful (it lets us
+recalculate priority for a thread in O(n) time in the number of locks held).
+The list of waiting threads for a condition variable is kept unsorted because
+O(1) access to the highest priority semaphore isn't useful, and having to
+resort the list whenever a semaphore changes priority is more expensive than
+just finding the maximum priority when we actually want to signal (and each
+semaphore would have to keep a list of condition variables, which is kind
+of stupid).
 
 			  ADVANCED SCHEDULER
 			  ==================
