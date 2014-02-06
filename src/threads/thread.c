@@ -468,8 +468,6 @@ void set_priority(int new_priority) {
   int old_priority = thread_current()->priority;
 
   thread_current()->priority = new_priority;
-  if (!thread_mlfqs) { /* this is a hack, you shouldn't be calling this at all
-			*/
   if (old_priority < new_priority) {
     if (thread_current()->cur_pri < thread_current()->priority)
       thread_current()->cur_pri = thread_current()->priority;
@@ -507,7 +505,6 @@ void set_priority(int new_priority) {
       }
     }
     maybe_yield();
-  }
   }
 }
 

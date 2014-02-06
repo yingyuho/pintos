@@ -199,6 +199,10 @@ void lock_acquire(struct lock *lock) {
     ASSERT(!intr_context());
     ASSERT(!lock_held_by_current_thread(lock));
 
+    i = intr_disable();
+    struct thread *t = lock->holder;
+    if (!thread_mlfqs) { // Not even going to bother
+      
     /* Since we're going to wait on this lock, update its holder's priority if
        higher. Nested donation can be handled somewhat elegantly by using our
        effective priority instead of intrinsic priority.
@@ -209,9 +213,6 @@ void lock_acquire(struct lock *lock) {
        traversal (especially since it needs to be done with interrupts
        disabled).
        A limit to nesting can easily be implemented here if desired. */
-    i = intr_disable();
-    struct thread *t = lock->holder;
-    if (!thread_mlfqs) { // Not even going to bother
     while (t != NULL) {
       if (t->cur_pri < thread_current()->cur_pri) {
 	t->cur_pri = thread_current()->cur_pri;
@@ -251,10 +252,7 @@ void lock_acquire(struct lock *lock) {
     sema_down(&lock->semaphore);
     thread_current()->bllock = NULL;
     lock->holder = thread_current();
-    if(thread_current()->locks) // There is one case where this isn't true,
-      // which is while calling thread_init... because we haven't allocated
-      // locks. locks is initialized for the initial thread in thread_start(),
-      // because we need the page table to exist first.
+    if(thread_current()->locks)
       list_push_back(thread_current()->locks, &lock->elem);
     // Since we have the lock, that means all other processes blocked on this
     // lock have at most the same priority, so we don't need to update that.
@@ -291,7 +289,7 @@ void lock_release(struct lock *lock) {
     ASSERT(lock_held_by_current_thread(lock));
 
     lock->holder = NULL;
-    if (thread_current()->locks) {
+    if ((!thread_mlfqs) && thread_current()->locks) {
       list_remove(&lock->elem);
       // Update priority if necessary.
       // I'm only mostly convinced that this is right; it should be an
