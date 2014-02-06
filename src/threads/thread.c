@@ -57,14 +57,13 @@ static unsigned thread_ticks;   /*!< # of timer ticks since last yield. */
 
 /* Multilevel feedback queue scheduling */
 static fp_t load_avg;
-static int32_t ready_threads;
 
 #define LOAD_AVG_OLD fp_div_fp(59, 60)
 #define LOAD_AVG_NEW fp_div_fp( 1, 60)
 
 static void set_priority(int);
 static void tick_mlfqs(void);
-static int cpu_nice_to_priority(fp_t recent_cpu, fp_t nice);
+static int auto_priority(struct thread *t);
 
 /*! If false (default), use round-robin scheduler.
     If true, use multi-level feedback queue scheduler.
@@ -130,8 +129,8 @@ void thread_start(void) {
     sema_down(&idle_started);
 }
 
-int cpu_nice_to_priority(fp_t cpu, fp_t nice) {
-    int p = PRI_MAX - fp_round(fp_add_fp(fp_div_int(cpu, 4), fp_mul_int(nice, 2)));
+int auto_priority(struct thread *t) {
+    int p = PRI_MAX - fp_round(fp_add_int(fp_div_int(t->recent_cpu, 4), t->nice * 2));
     if (p < PRI_MIN)
 	p = PRI_MIN;
     if (p > PRI_MAX)
@@ -164,19 +163,40 @@ void thread_tick(void) {
 }
 
 void tick_mlfqs(void) {
-    struct thread *t = thread_current();
+    struct thread *t0 = thread_current();
+    struct thread *t1;
     int32_t ready_running_threads;
     fp_t cpu_damp;
-    fp_t pri;
+    //fp_t pri;
     struct list_elem *e;
 
-    if (t != idle_thread)
-        t->recent_cpu = fp_add_int(t->recent_cpu, 1);
+    /* Do once per 4 ticks */
+    if (timer_ticks() % 4 == 0) {
+        t0->cur_pri = t0->priority = auto_priority(t0);
 
-    /* Do this once per second */
+        if (!list_empty(&ready_list)) {
+            for (e = list_front(&ready_list); 
+                 e != list_tail(&ready_list); 
+                 e = list_next(e)) {
+                t1 = list_entry(e, struct thread, elem);
+                t1->cur_pri = t1->priority = auto_priority(t1);
+                reinsert(t1);
+            }
+
+            t1 = list_entry(list_front(&ready_list), struct thread, elem);
+
+            if (t0->priority < t1->priority)
+                intr_yield_on_return();
+        }
+    }
+
+    if (t0 != idle_thread)
+        t0->recent_cpu = fp_add_int(t0->recent_cpu, 1);
+
+    /* Do once per second */
     if (timer_ticks() % TIMER_FREQ == 0) {
         /* Count threads that are running or ready to run */
-        ready_running_threads = (t != idle_thread);
+        ready_running_threads = (t0 != idle_thread);
 
         if (!list_empty(&ready_list)) {
             for (e = list_front(&ready_list); 
@@ -186,43 +206,24 @@ void tick_mlfqs(void) {
             }
         }
 
-        load_avg = fp_add_fp(fp_mul_fp(LOAD_AVG_OLD, load_avg), 
-                            fp_mul_int(LOAD_AVG_NEW, ready_running_threads));
-
         cpu_damp = fp_div_fp(2 * load_avg, fp_add_int(2 * load_avg, 1));
 
-        t->recent_cpu = fp_add_int(fp_mul_fp(cpu_damp, t->recent_cpu), t->nice);
+        t0->recent_cpu = fp_add_int(fp_mul_fp(cpu_damp, t0->recent_cpu), t0->nice);
 
         if (!list_empty(&ready_list)) {
             for (e = list_front(&ready_list); 
                  e != list_tail(&ready_list); 
                  e = list_next(e)) {
-                t = list_entry(e, struct thread, elem);
-                t->recent_cpu = fp_add_int(fp_mul_fp(cpu_damp, t->recent_cpu), t->nice);
+                t1 = list_entry(e, struct thread, elem);
+                t1->recent_cpu = fp_add_int(fp_mul_fp(cpu_damp, t1->recent_cpu), t1->nice);
             }
         }
+
+        load_avg = fp_add_fp(fp_mul_fp(LOAD_AVG_OLD, load_avg), 
+                            fp_mul_int(LOAD_AVG_NEW, ready_running_threads));
     }
 
-    /* Do once per 4 ticks */
-    if (timer_ticks() % 4 == 0) {
-        t = thread_current();
-        t->cur_pri = t->priority = cpu_nice_to_priority(t->recent_cpu, t->nice);
 
-        if (!list_empty(&ready_list)) {
-            for (e = list_front(&ready_list); 
-                 e != list_tail(&ready_list); 
-                 e = list_next(e)) {
-                t = list_entry(e, struct thread, elem);
-                t->cur_pri = t->priority = cpu_nice_to_priority(t->recent_cpu, t->nice);
-                reinsert(t);
-            }
-
-            t = list_entry(list_front(&ready_list), struct thread, elem);
-
-            if (thread_current()->priority < t->priority)
-                intr_yield_on_return();
-        }
-    }
 }
 
 /*! Prints thread statistics. */
@@ -264,7 +265,7 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
     t->recent_cpu = fp_from_int(0);
     t->nice = 0;
     if (thread_mlfqs)
-        init_thread(t, name, cpu_nice_to_priority(t->recent_cpu, t->nice));
+        init_thread(t, name, auto_priority(t));
     else
         init_thread(t, name, priority);
     t->locks = palloc_get_page(0);
@@ -506,7 +507,8 @@ void thread_set_nice(int nice) {
     if (nice < NICE_MIN)
         nice = NICE_MIN;
     t->nice = nice;
-    set_priority(cpu_nice_to_priority(t->recent_cpu, t->nice));
+    t->cur_pri = t->priority = auto_priority(t);
+    maybe_yield();
 }
 
 /*! Returns the current thread's nice value. */
@@ -523,7 +525,7 @@ int thread_get_load_avg(void) {
 int thread_get_recent_cpu(void) {
     return fp_round(fp_mul_int(thread_current()->recent_cpu, 100));
 }
-
+
 /*! Idle thread.  Executes when no other thread is ready to run.
 
     The idle thread is initially put on the ready list by thread_start().
