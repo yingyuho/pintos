@@ -11,6 +11,8 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/fixed_point.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -53,6 +55,13 @@ static long long user_ticks;    /*!< # of timer ticks in user programs. */
 #define TIME_SLICE 4            /*!< # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /*!< # of timer ticks since last yield. */
 
+/* Multilevel feedback queue scheduling */
+static fp_t load_avg;
+static int32_t ready_threads;
+
+#define LOAD_AVG_OLD fp_div_fp(59, 60)
+#define LOAD_AVG_NEW fp_div_fp( 1, 60)
+
 /*! If false (default), use round-robin scheduler.
     If true, use multi-level feedback queue scheduler.
     Controlled by kernel command-line option "-o mlfqs". */
@@ -93,6 +102,10 @@ void thread_init(void) {
     init_thread(initial_thread, "main", PRI_DEFAULT);
     initial_thread->status = THREAD_RUNNING;
     initial_thread->tid = allocate_tid();
+
+    /* Initialize MLFQS variable(s) */
+    load_avg = fp_from_int(0);
+    ready_threads = 0;
 }
 
 /*! Starts preemptive thread scheduling by enabling interrupts.
@@ -117,6 +130,8 @@ void thread_start(void) {
 /*! Called by the timer interrupt handler at each timer tick.
     Thus, this function runs in an external interrupt context. */
 void thread_tick(void) {
+    int32_t ready_running_threads;
+    struct list_elem *e;
     struct thread *t = thread_current();
 
     /* Update statistics. */
@@ -128,6 +143,15 @@ void thread_tick(void) {
 #endif
     else
         kernel_ticks++;
+
+    /* Do this once per second */
+    if (timer_ticks() % TIMER_FREQ == 0) {
+        /* Count threads that are running or ready to run */
+        ready_running_threads = ready_threads + (t != idle_thread);
+
+        load_avg = fp_add_fp(fp_mul_fp(LOAD_AVG_OLD, load_avg), 
+                            fp_mul_int(LOAD_AVG_NEW, ready_running_threads));
+    }
 
     /* Enforce preemption. */
     if (++thread_ticks >= TIME_SLICE)
@@ -227,6 +251,7 @@ void thread_unblock(struct thread *t) {
 
     old_level = intr_disable();
     ASSERT(t->status == THREAD_BLOCKED);
+    ++ready_threads;
     list_insert_ordered(&ready_list, &t->elem, pri_less_func, 0);
     t->status = THREAD_READY;
     intr_set_level(old_level);
@@ -304,8 +329,10 @@ void thread_yield(void) {
     ASSERT(!intr_context());
 
     old_level = intr_disable();
-    if (cur != idle_thread)
+    if (cur != idle_thread) {
+      ++ready_threads;
       list_insert_ordered(&ready_list, &cur->elem, pri_less_func, 0);
+    }
     cur->status = THREAD_READY;
     schedule();
     intr_set_level(old_level);
@@ -411,8 +438,7 @@ int thread_get_nice(void) {
 
 /*! Returns 100 times the system load average. */
 int thread_get_load_avg(void) {
-    /* Not yet implemented. */
-    return 0;
+    return fp_round(fp_mul_int(load_avg, 100));
 }
 
 /*! Returns 100 times the current thread's recent_cpu value. */
@@ -517,8 +543,10 @@ static void * alloc_frame(struct thread *t, size_t size) {
 static struct thread * next_thread_to_run(void) {
     if (list_empty(&ready_list))
       return idle_thread;
-    else
+    else {
+      --ready_threads;
       return list_entry(list_pop_front(&ready_list), struct thread, elem);
+    }
 }
 
 /*! Completes a thread switch by activating the new thread's page tables, and,
