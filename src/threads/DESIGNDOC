@@ -101,6 +101,7 @@ alarm_to_sleep is guarded by alarm_sema_w and alarm_sema_r.
 
 This design can cause some threads to sleep longer if there are many
 threads trying to sleep for a very short time simultaneously.
+
 If I want to pass many alarms to timer_interrupt() in the same tick,
 I need to handle list synchronization or put alarm in struct thread.
 The first case is complicated. The second reduces code modularity.
@@ -263,6 +264,24 @@ of stupid).
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+New members in struct:
+
+struct thread {
+    // niceness
+    int nice;
+    // recent CPU time used
+    int recent_cpu;
+};
+
+New static variables and macros:
+
+// current system load average
+static fp_t load_avg;
+
+// time decay factors for load_avg
+#define LOAD_AVG_OLD fp_div_fp(59, 60)
+#define LOAD_AVG_NEW fp_div_fp( 1, 60)
+
 ---- ALGORITHMS ----
 
 >> C2: Suppose threads A, B, and C have nice values 0, 1, and 2.  Each
@@ -273,20 +292,28 @@ of stupid).
 timer  recent_cpu    priority   thread
 ticks   A   B   C   A   B   C   to run
 -----  --  --  --  --  --  --   ------
- 0
- 4
- 8
-12
-16
-20
-24
-28
-32
-36
+ 0      0   0   0  63  61  59      A
+ 4      4   0   0  62  61  59      A
+ 8      8   0   0  61  61  59      B
+12      8   4   0  61  60  59      A
+16     12   4   0  60  60  59      B
+20     12   8   0  60  59  59      A
+24     16   8   0  59  59  59      C
+28     16   8   4  59  59  58      B
+32     16  12   4  59  58  58      A
+36     20  12   4  58  58  58      C
 
 >> C3: Did any ambiguities in the scheduler specification make values
 >> in the table uncertain?  If so, what rule did you use to resolve
 >> them?  Does this match the behavior of your scheduler?
+
+priority depends on recent_cpu. recent_cpu depends on load_avg.
+The scheduler specification does not specify their update order.
+
+For the above computation I choose to update them in the order of 
+load_avg -> recent_cpu -> priority.
+
+In my codes, however, I use (TODO) to pass the automatic tests.
 
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
@@ -304,6 +331,8 @@ ticks   A   B   C   A   B   C   to run
 >> abstraction layer for fixed-point math, that is, an abstract data
 >> type and/or a set of functions or macros to manipulate fixed-point
 >> numbers, why did you do so?  If not, why not?
+
+
 
 			   SURVEY QUESTIONS
 			   ================
