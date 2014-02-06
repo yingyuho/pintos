@@ -345,7 +345,11 @@ more compact interrupt handler given more time.
 >> type and/or a set of functions or macros to manipulate fixed-point
 >> numbers, why did you do so?  If not, why not?
 
-
+I aliased int32_t as my fixed point number and make methods for 
+each arithmetic operation. I could have made it incompatible with int_32
+to avoid confusing an integer and a fixed point number and applying 
+wrong functions. Nevertheless, I chose to keep it primitive because 
+we can still make each formula a function to facilitate testing.
 
 			   SURVEY QUESTIONS
 			   ================
