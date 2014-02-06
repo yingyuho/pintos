@@ -131,6 +131,7 @@ void thread_start(void) {
     Thus, this function runs in an external interrupt context. */
 void thread_tick(void) {
     int32_t ready_running_threads;
+    fp_t recent_cpu_damp;
     struct list_elem *e;
     struct thread *t = thread_current();
 
@@ -144,6 +145,9 @@ void thread_tick(void) {
     else
         kernel_ticks++;
 
+    if (t != idle_thread)
+        t->recent_cpu = fp_add_int(t->recent_cpu, 1);
+
     /* Do this once per second */
     if (timer_ticks() % TIMER_FREQ == 0) {
         /* Count threads that are running or ready to run */
@@ -151,6 +155,10 @@ void thread_tick(void) {
 
         load_avg = fp_add_fp(fp_mul_fp(LOAD_AVG_OLD, load_avg), 
                             fp_mul_int(LOAD_AVG_NEW, ready_running_threads));
+
+        recent_cpu_damp = fp_div_fp(2 * load_avg, fp_add_int(2 * load_avg, 1));
+
+        t->recent_cpu = 
     }
 
     /* Enforce preemption. */
@@ -198,6 +206,8 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
     t->locks = palloc_get_page(0);
     list_init(t->locks);
     tid = t->tid = allocate_tid();
+    t->recent_cpu = fp_from_int(0);
+    t->nice = 0;
 
     /* Stack frame for kernel_thread(). */
     kf = alloc_frame(t, sizeof *kf);
