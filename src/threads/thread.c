@@ -337,8 +337,6 @@ void thread_unblock(struct thread *t) {
     list_insert_ordered(&ready_list, &t->elem, pri_less_func, 0);
     t->status = THREAD_READY;
     intr_set_level(old_level);
-    // Well, since we can't preempt the calling thread here, we have
-    // to do it at the places where we call it...
 }
 
 /* Yields if the current thread has lower priority than the first thread in

@@ -8,21 +8,23 @@
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
+Yichi Zhang <yzzhang@caltech.edu>
+Ying-Yu Ho <yingyu@caltech.edu>
 
 >> Specify how many late tokens you are using on this assignment:  
 
 >> What is the Git repository and commit hash for your submission?
 
-   Repository URL:  
+   Repository URL: /cs/courses/cs124/teams/pintos-hkz
    commit ...
 
 ---- PRELIMINARIES ----
 
 >> If you have any preliminary comments on your submission, notes for the
 >> TAs, or extra credit, please give them here.
+
+There are lots of new functions, mostly code refactoring.
+The code is somewhat poorly organized.
 
 >> Please cite any offline or online sources you consulted while
 >> preparing your submission, other than the Pintos documentation, course
@@ -135,6 +137,32 @@ priority donation is done by donating to the "parent" of the thread
 (i.e. the one holding the lock it's blocked on) and repeating if
 that thread is also blocked to implement nested donation.
 
+  /---------------------\
+  |priority  cur_pri    |----->locks
+  |31        33         |      /
+  \---------------------/     /
+                             /
+                            /
+                           /
+                          /
+			 /
+  /---------------------\
+  |priority  cur_pri    |----->locks
+  |32        33         |      /
+  \---------------------/     /
+                             /
+                            /
+                           /
+                          /
+			 /
+  /---------------------\
+  |priority  cur_pri    |----->locks
+  |33        33         |
+  \---------------------/
+
+(Updating is done by going upward in the tree, so the actual structure
+of the list locks is irrelevant. Each struct thread keeps a pointer
+bllock which points to the lock it's waiting on)
 ---- ALGORITHMS ----
 
 >> B3: How do you ensure that the highest priority thread waiting for
