@@ -323,8 +323,7 @@ specify the order of two threads with the same priority.
 >> inside and outside interrupt context likely to affect performance?
 
 Almost everything is done in interrupt context, so the CPU time 
-available to threads is eaten a little bit, which is why a test 
-fails by a little bit.
+available to threads is eaten a little bit.
 
 ---- RATIONALE ----
 
