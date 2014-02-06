@@ -57,6 +57,7 @@ static unsigned thread_ticks;   /*!< # of timer ticks since last yield. */
 
 /* Multilevel feedback queue scheduling */
 static fp_t load_avg;
+static int32_t ready_threads;
 
 #define LOAD_AVG_OLD fp_div_fp(59, 60)
 #define LOAD_AVG_NEW fp_div_fp( 1, 60)
@@ -184,12 +185,10 @@ void tick_mlfqs(void) {
                 ++ready_running_threads;
             }
         }
-//printf("tt=%d\n", timer_ticks());
-//printf("rrt=%d\n", ready_running_threads);
 
         load_avg = fp_add_fp(fp_mul_fp(LOAD_AVG_OLD, load_avg), 
                             fp_mul_int(LOAD_AVG_NEW, ready_running_threads));
-//printf("la=%d\n", load_avg);
+
         cpu_damp = fp_div_fp(2 * load_avg, fp_add_int(2 * load_avg, 1));
 
         t->recent_cpu = fp_add_int(fp_mul_fp(cpu_damp, t->recent_cpu), t->nice);
@@ -217,6 +216,11 @@ void tick_mlfqs(void) {
                 t->cur_pri = t->priority = cpu_nice_to_priority(t->recent_cpu, t->nice);
                 reinsert(t);
             }
+
+            t = list_entry(list_front(&ready_list), struct thread, elem);
+
+            if (thread_current()->priority < t->priority)
+                intr_yield_on_return();
         }
     }
 }
