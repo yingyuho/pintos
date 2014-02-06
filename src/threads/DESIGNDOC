@@ -181,7 +181,7 @@ A priority donation is caused when the lock is already held by
 another thread. If this is the case, then we check whether the thread
 holding the lock has lower (effective) priority than the calling thread;
 if so, we set that thread's priority to the calling thread's priority.
-(All of this has to be done with interrupts disabled; otherwise the
+(All of this has to be done with interrupts disabled; otherwise
 we can end up donating priority to a thread that no longer holds the
 lock).
 
@@ -191,7 +191,7 @@ thread holding that lock and so on) and partly by donating the effective
 priority (this removes the need to actually traverse any subtree). The
 key is to maintain the invariant that cur_pri is the highest priority of
 every thread in the subtree; as long as this is true, updates are easy.
-(The fact that this also makes get_thread_priority() O(1) is a bonus)
+(The fact that this also makes thread_get_priority() O(1) is a bonus)
 
 >> B5: Describe the sequence of events when lock_release() is called
 >> on a lock that a higher-priority thread is waiting for.

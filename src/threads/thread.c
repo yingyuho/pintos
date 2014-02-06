@@ -135,7 +135,8 @@ void thread_start(void) {
 }
 
 int auto_priority(struct thread *t) {
-    int p = PRI_MAX - fp_round(fp_add_int(fp_div_int(t->recent_cpu, 4), t->nice * 2));
+  int p = -fp_round(fp_add_int(fp_div_int(t->recent_cpu, 4), t->nice * 2 - 
+PRI_MAX));
     if (p < PRI_MIN)
 	p = PRI_MIN;
     if (p > PRI_MAX)
