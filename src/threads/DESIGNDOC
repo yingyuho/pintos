@@ -298,14 +298,22 @@ ticks   A   B   C   A   B   C   to run
 
 priority depends on recent_cpu. recent_cpu depends on load_avg.
 The scheduler specification does not specify their update order.
+load_avg is not important here because of the short time.
 
-For the above computation I choose to update them in the order of 
-load_avg -> recent_cpu -> priority.
+For the above computation we choose to update them in the order of 
+recent_cpu -> priority -> thread to run.
+When two threads have the same priority, the FIFO order for each 
+priority bin is adopted.
 
-In my codes, however, I use (TODO) to pass the automatic tests.
+In my codes, however, we use only one ready queue which does not 
+specify the order of two threads with the same priority.
 
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
+
+Almost everything is done in interrupt context, so the CPU time 
+available to threads is eaten a little bit, which is why a test 
+fails by a little bit.
 
 ---- RATIONALE ----
 
@@ -313,6 +321,11 @@ In my codes, however, I use (TODO) to pass the automatic tests.
 >> disadvantages in your design choices.  If you were to have extra
 >> time to work on this part of the project, how might you choose to
 >> refine or improve your design?
+
+I did everything in timer interrupt so there are few synchronization 
+problems to solve but performance is sacrificed.
+Certainly I would like to redesign my advanced scheduler to have a 
+more compact interrupt handler given more time.
 
 >> C6: The assignment explains arithmetic for fixed-point math in
 >> detail, but it leaves it open to you to implement it.  Why did you
