@@ -39,37 +39,69 @@ FirstName LastName <email@domain.example>
 
 New:
 
+// alarm clock with the semaphore that makes a thread sleep
 struct alarm {
     int64_t expires_at;
     struct semaphore expired;
     struct list_elem elem;
 };
 
+// the list of alarm to be checked for expiration
+static struct list alarm_list;
+
+// the next alarm to be put into alarm_list by timer_interrupt()
+static struct list_elem *alarm_to_sleep;
+
+// writing and reading semaphores for alarm_to_sleep
 static struct semaphore alarm_sema_w;
 static struct semaphore alarm_sema_r;
-static struct list alarm_list;
-static struct list_elem *alarm_to_sleep;
 
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe what happens in a call to timer_sleep(),
 >> including the effects of the timer interrupt handler.
 
+1. An alarm is initialized with expiration time precomputed and 
+   semaphore = 0.
+2. timer_sleep() wait for a spot of alarm_to_sleep to pass the 
+   alarm to timer_interrupt()
+3. timer_sleep() call sema_down() on the semaphore to block the process
+4. When the timer ticks, timer_interrupt() put alarm_to_sleep into 
+   alarm_list in the order of asecnding expiration time and free the spot
+5. timer_interrupt() check alarm_list and up the semaphore if
+   an alarm is expired so the sleeping process is unblocked
+
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
+
+Since enlisting alarms is less frequent than checking their time,
+I sort alarms in asecnding expiration time so that once I find 
+an alarm not expired, I can stop looping through alarm_list
 
 ---- SYNCHRONIZATION ----
 
 >> A4: How are race conditions avoided when multiple threads call
 >> timer_sleep() simultaneously?
 
+A pair of semaphores alarm_sema_w and alarm_sema_r make sure that
+at most one alarm is passed to timer_interrupt() per tick.
+
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
+
+timer_sleep() does not touch alarm_list directly. The intermediate
+alarm_to_sleep is guarded by alarm_sema_w and alarm_sema_r.
 
 ---- RATIONALE ----
 
 >> A6: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
+
+This design can cause some threads to sleep longer if there are many
+threads trying to sleep for a very short time simultaneously.
+If I want to pass many alarms to timer_interrupt() in the same tick,
+I need to handle list synchronization or put alarm in struct thread.
+The first case is complicated. The second reduces code modularity.
 
 			 PRIORITY SCHEDULING
 			 ===================
