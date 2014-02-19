@@ -80,6 +80,8 @@ static void start_process(void *file_name_) {
     This function will be implemented in problem 2-2.  For now, it does
     nothing. */
 int process_wait(tid_t child_tid UNUSED) {
+  for(;;) // TODO: actually implement
+    thread_yield();
     return -1;
 }
 
@@ -181,7 +183,7 @@ struct Elf32_Phdr {
 #define PF_R 4          /*!< Readable. */
 /*! @} */
 
-static bool setup_stack(void **esp);
+static bool setup_stack(void **esp, char *exec_name, char *saveptr);
 static bool validate_segment(const struct Elf32_Phdr *, struct file *);
 static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
                          uint32_t read_bytes, uint32_t zero_bytes,
@@ -204,10 +206,34 @@ bool load(const char *file_name, void (**eip) (void), void **esp) {
         goto done;
     process_activate();
 
+    /* Parse the file name; first we need to actually copy the name out
+       (because strtok_r modifies the string) */
+    /* Limitation: This implementation requires that the command fit in one
+       page. Also it means you can't have spaces in file names (which is
+       sort of silly; I think the actual standards allow all sorts of
+       nonsense in file names, like EOF and newlines). */
+    char *saveptr;
+    char *buf = (char *) palloc_get_page(PAL_ZERO);
+    char *exec_name;
+    if (buf == NULL) {
+      // Well, that's awkward
+      printf("Out of memory\n");
+      goto done;
+    }
+    strlcpy(buf, file_name, PGSIZE);
+
+    // Parse the first thing out
+    exec_name = strtok_r(buf, " ", &saveptr);
+    if (exec_name == NULL) {
+      // Empty command? Well, I guess we shouldn't do anything then?
+      palloc_free_page(buf);
+      goto done;
+    }
+
     /* Open executable file. */
-    file = filesys_open(file_name);
+    file = filesys_open(exec_name);
     if (file == NULL) {
-        printf("load: %s: open failed\n", file_name);
+        printf("load: %s: open failed\n", exec_name);
         goto done; 
     }
 
@@ -279,8 +305,14 @@ bool load(const char *file_name, void (**eip) (void), void **esp) {
         }
     }
 
-    /* Set up stack. */
-    if (!setup_stack(esp))
+    /* Set up stack. We need to pass the save pointer (it can be passed
+       by value actually since we don't use it again) as well as the
+       parsed file name (since that needs to be on the stack).
+       Also we need to store the result of setup_stack for a bit (the comma
+       operator gives the wrong return value) so we can free the buffer */
+    bool stack_suc = setup_stack(esp, exec_name, saveptr);
+    palloc_free_page(buf);
+    if (!stack_suc)
         goto done;
 
     /* Start address. */
@@ -394,17 +426,85 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
     return true;
 }
 
+static inline char* kpage_to_phys(char *kpage, char *ptr) {
+  return PHYS_BASE + (ptr - kpage - PGSIZE); 
+}
+
 /*! Create a minimal stack by mapping a zeroed page at the top of
     user virtual memory. */
-static bool setup_stack(void **esp) {
+static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
     uint8_t *kpage;
     bool success = false;
+    char *stack, *tok;
 
     kpage = palloc_get_page(PAL_USER | PAL_ZERO);
     if (kpage != NULL) {
         success = install_page(((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-        if (success)
-            *esp = PHYS_BASE;
+        if (success) {
+	  /* Note that the names are being put on the stack in reverse
+	     order; this does not matter, because we only access
+	     them through pointers. We then construct argv by looking
+	     through the names backwards. */
+
+	  /* For "portability" I should probably use sizeof instead of
+	     assuming sizes are 4 */
+	  stack = (char *)kpage + PGSIZE;
+
+	  /* First, push the name onto the stack */
+	  stack -= strlen(exec_name) + 1;
+	  memcpy(stack, exec_name,  strlen(exec_name) + 1);
+
+	  /* Now go through the rest of the arguments (if any) */
+
+	  for(;;) {
+	    tok = strtok_r(NULL, " ", &saveptr);
+	    if (tok == NULL)
+	      break;
+	    /* Push this argument onto the stack, basically the same
+	       way as before */
+	    stack -= strlen(tok) + 1;
+	    memcpy(stack, tok, strlen(tok) + 1);
+	  }
+
+	  /* Pad the stack out. The page is already zeroed when allocated,
+	     so that's okay */
+	  stack -= (((int)stack) % 4);
+
+	  /* Now to actually set up argv */
+	  unsigned argc;
+	  stack -= 4; /* argv[argc] is 0 */
+
+	  /* Reusing this pointer to iterate through the arguments */
+	  tok = stack;
+	  
+	  for (argc = 1;; ++argc) {
+	    while ((tok < (char *)kpage + PGSIZE) && (*tok == 0))
+	      tok++;
+	    if (tok == (char *)kpage + PGSIZE)
+	      break;
+	    /* This is the start of the argument */
+	    ((char **)stack)[-argc] = kpage_to_phys(kpage, tok);
+	    while (*tok) {
+	      tok++;
+	    }
+	  }
+	  --argc;
+	  stack -= 4 * (argc); // The reason for doing it this way
+	  // is mostly to simplify the loop
+	  
+	  // And now we push argv (which is just the stack address itself!)
+	  ((char **)stack)[-1] = kpage_to_phys(kpage, stack);
+	  
+	  // And argc and the "return address". The page was already zeroed
+	  // so the return address is fine.
+	  stack -= 12;
+	  ((unsigned *)stack)[1] = argc;
+	  
+	  /*hex_dump((unsigned)PHYS_BASE - ((char *)kpage + PGSIZE - stack),
+	    stack, (char *)kpage + PGSIZE - stack, true); */
+
+	  *esp = (stack - (char *)kpage - PGSIZE + PHYS_BASE);
+	}
         else
             palloc_free_page(kpage);
     }
