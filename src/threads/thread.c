@@ -120,8 +120,8 @@ void thread_start(void) {
     
     /* Set up locks for the initial thread */
     if (!thread_mlfqs) {
-      initial_thread->locks = palloc_get_page(0);
-      list_init(initial_thread->locks);
+      // initial_thread->locks = palloc_get_page(PAL_ZERO);
+      list_init(&initial_thread->locks);
     }
     else {
       load_avg = fp_from_int(0);
@@ -138,7 +138,7 @@ int auto_priority(struct thread *t) {
   int p = -fp_round(fp_add_int(fp_div_int(t->recent_cpu, 4), t->nice * 2 - 
 PRI_MAX));
     if (p < PRI_MIN)
-	p = PRI_MIN;
+        p = PRI_MIN;
     if (p > PRI_MAX)
         p = PRI_MAX;
 
@@ -186,19 +186,17 @@ void tick_mlfqs(void) {
             for (e = list_front(&ready_list); 
                  e != list_tail(&ready_list); 
                  e = list_next(e)) {
+
                 t1 = list_entry(e, struct thread, elem);
                 t1->priority = auto_priority(t1);
-                //reinsert(t1);
-		/* Sorting the entire list is faster (O(n log n) instead
-		   of O(n^2) */
             }
-	    list_sort(&ready_list, pri_less_func, 0);
+
+            list_sort(&ready_list, pri_less_func, 0);
             t1 = list_entry(list_front(&ready_list), struct thread, elem);
 
             if (t0->priority < t1->priority)
                 intr_yield_on_return();
         }
-	
     }
 
     /* recent CPU time += 1 for the running thread per tick */
@@ -275,8 +273,8 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
         init_thread(t, name, auto_priority(t));
     else {
         init_thread(t, name, priority);
-	t->locks = palloc_get_page(0);
-	list_init(t->locks);
+        // t->locks = palloc_get_page(PAL_ZERO);
+        list_init(&t->locks);
     }
     tid = t->tid = allocate_tid();
 
@@ -341,9 +339,11 @@ void thread_unblock(struct thread *t) {
    the ready queue and not in interrupt context */
 void maybe_yield() {
   if ((! intr_context()) && (! list_empty(&ready_list)))
-    if (thread_current()->priority < list_entry(list_begin(&ready_list),
-				struct thread, elem)-> priority)
-      thread_yield();
+    if (thread_current()->priority < 
+        list_entry(list_begin(&ready_list), struct thread, elem)-> priority)
+    {
+        thread_yield();
+    }
 }
 
 // Reschedule a thread (due to changed priority)
@@ -434,23 +434,24 @@ void thread_foreach(thread_action_func *func, void *aux) {
 
 /* Helper function to get donated priority from held locks */
 void get_donated_priority(struct thread *t) {
-  struct list_elem *e;
-  for ( e = list_begin(t->locks); 
-	    e != list_end(t->locks); e = list_next(e)) {
-	struct lock *l = list_entry(e, struct lock, elem);
-	// Check the "priority" of the lock, if any
-	struct list *z = &l->semaphore.waiters;
-	if (! list_empty(z)) {	  
-	  int i = intr_disable();
-	  int p = list_entry(list_begin(z), struct thread, elem)->cur_pri;
-	  // We do need to avoid a race condition here though (another thread
-	  // can increase our cur_pri, and then we'll set it to the wrong
-	  // value).
-	  if (p > t->cur_pri)
-	    t->cur_pri = p;
-	  intr_set_level(i);
-	}
-      }
+    struct list_elem *e;
+    for ( e = list_begin(&t->locks); 
+          e != list_end(&t->locks); e = list_next(e))
+    {
+        struct lock *l = list_entry(e, struct lock, elem);
+        // Check the "priority" of the lock, if any
+        struct list *z = &l->semaphore.waiters;
+        if (!list_empty(z)) {      
+            int i = intr_disable();
+            int p = list_entry(list_begin(z), struct thread, elem)->cur_pri;
+            // We do need to avoid a race condition here though (another thread
+            // can increase our cur_pri, and then we'll set it to the wrong
+            // value).
+            if (p > t->cur_pri)
+                t->cur_pri = p;
+            intr_set_level(i);
+        }
+    }
 }
 
 /*! Sets the current thread's priority to NEW_PRIORITY. */
@@ -480,24 +481,26 @@ void set_priority(int new_priority) {
     // (It's not really a race condition; no matter when that increase happens
     // we get the same result in the end)
     if (thread_current()->cur_pri == old_priority) {
-      thread_current()->cur_pri = new_priority;
+        thread_current()->cur_pri = new_priority;
       // Look through locks to find the largest element
       struct list_elem *e;
-      for ( e = list_begin(thread_current()->locks); 
-	    e != list_end(thread_current()->locks); e = list_next(e)) {
-	struct lock *l = list_entry(e, struct lock, elem);
-	// Check the "priority" of the lock, if any
-	struct list *z = &l->semaphore.waiters;
-	if (! list_empty(z)) {
-	  int i = intr_disable();
-	  int p = list_entry(list_begin(z), struct thread, elem)->cur_pri;
-	  // We do need to avoid a race condition here though (another thread
-	  // can increase our cur_pri; p being increased doesn't matter,
-	  // because that will also update our cur_pri if needed.
-	  if (p > thread_current()->cur_pri)
-	    thread_current()->cur_pri = p;
-	  intr_set_level(i);
-	}
+      for ( e = list_begin(&thread_current()->locks); 
+            e != list_end(&thread_current()->locks);
+            e = list_next(e))
+      {
+        struct lock *l = list_entry(e, struct lock, elem);
+        // Check the "priority" of the lock, if any
+        struct list *z = &l->semaphore.waiters;
+        if (! list_empty(z)) {
+          int i = intr_disable();
+          int p = list_entry(list_begin(z), struct thread, elem)->cur_pri;
+          // We do need to avoid a race condition here though (another thread
+          // can increase our cur_pri; p being increased doesn't matter,
+          // because that will also update our cur_pri if needed.
+          if (p > thread_current()->cur_pri)
+            thread_current()->cur_pri = p;
+          intr_set_level(i);
+        }
       }
     }
     maybe_yield();
@@ -681,8 +684,8 @@ void thread_schedule_tail(struct thread *prev) {
     if (prev != NULL && prev->status == THREAD_DYING &&
         prev != initial_thread) {
         ASSERT(prev != cur);
-	if (!thread_mlfqs)
-	  palloc_free_page(prev->locks);
+        // if (!thread_mlfqs)
+        //     palloc_free_page(prev->locks);
         palloc_free_page(prev);
     }
 }
