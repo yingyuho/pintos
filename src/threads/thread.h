@@ -9,6 +9,10 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
+
+struct thread;
+struct thread_ashes;
 
 /*! States in a thread's life cycle. */
 enum thread_status {
@@ -106,10 +110,13 @@ struct thread {
     int recent_cpu; /* Amount of CPU time used recently */
     struct list_elem allelem;           /*!< List element for all threads list. */
 
-  struct list *locks; /* Currently held locks */
-  struct lock *bllock; /* Lock currently blocked on, if any */
-  struct semaphore *blsema; /* Ditto, but semaphore. The reason we still need
-			       the lock is to implement nesting */
+    struct thread_ashes *ashes;
+    struct list children; /* List of ashes */
+
+    struct list *locks; /* Currently held locks */
+    struct lock *bllock; /* Lock currently blocked on, if any */
+    struct semaphore *blsema; /* Ditto, but semaphore. The reason we still need
+                                 the lock is to implement nesting */
     /**@}*/
 
     /*! Shared between thread.c and synch.c. */
@@ -171,6 +178,17 @@ int thread_get_nice(void);
 void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
+
+
+/* thread_ashes */
+
+struct thread_ashes {
+    tid_t tid;
+    int32_t exit_status;
+    struct semaphore sema;
+    struct thread *thread;
+    struct list_elem elem;
+};
 
 #endif /* threads/thread.h */
 

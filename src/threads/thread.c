@@ -36,6 +36,7 @@ static struct thread *idle_thread;
 
 /*! Initial thread, the thread running init.c:main(). */
 static struct thread *initial_thread;
+static struct thread_ashes initial_thread_ashes;
 
 /*! Lock used by allocate_tid(). */
 static struct lock tid_lock;
@@ -95,6 +96,7 @@ static tid_t allocate_tid(void);
 
     It is not safe to call thread_current() until this function finishes. */
 void thread_init(void) {
+    struct thread_ashes *a;
     ASSERT(intr_get_level() == INTR_OFF);
 
     lock_init(&tid_lock);
@@ -106,6 +108,15 @@ void thread_init(void) {
     init_thread(initial_thread, "main", PRI_DEFAULT);
     initial_thread->status = THREAD_RUNNING;
     initial_thread->tid = allocate_tid();
+
+    /* Init ashes */
+    a = initial_thread->ashes = &initial_thread_ashes;
+    a->tid = initial_thread->tid;
+    a->exit_status = -1;
+    a->thread = initial_thread;
+    sema_init(&a->sema, 0);
+
+    list_init(&initial_thread->children);
 
     /* Initialize MLFQS variable(s) */
     //load_avg = fp_from_int(0);
@@ -136,8 +147,7 @@ void thread_start(void) {
 }
 
 int auto_priority(struct thread *t) {
-  int p = -fp_round(fp_add_int(fp_div_int(t->recent_cpu, 4), t->nice * 2 - 
-PRI_MAX));
+  int p = -fp_round(fp_add_int(fp_div_int(t->recent_cpu, 4), t->nice * 2 - PRI_MAX));
     if (p < PRI_MIN)
 	p = PRI_MIN;
     if (p > PRI_MAX)
@@ -257,6 +267,7 @@ void thread_print_stats(void) {
 tid_t thread_create(const char *name, int priority, thread_func *function,
                     void *aux) {
     struct thread *t;
+    struct thread_ashes *a;
     struct kernel_thread_frame *kf;
     struct switch_entry_frame *ef;
     struct switch_threads_frame *sf;
@@ -280,6 +291,17 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
 	list_init(t->locks);
     }
     tid = t->tid = allocate_tid();
+
+    /* Init ashes */
+    a = t->ashes = malloc(sizeof(struct thread_ashes));
+//printf("a=%lu\n", a);
+    a->tid = tid;
+    a->exit_status = -1;
+    a->thread = t;
+    sema_init(&a->sema, 0);
+//printf("c=%lu\n", &thread_current()->children);
+    list_init(&t->children);
+    list_push_back(&thread_current()->children, &a->elem);
 
     /* Stack frame for kernel_thread(). */
     kf = alloc_frame(t, sizeof *kf);
@@ -386,11 +408,26 @@ tid_t thread_tid(void) {
 /*! Deschedules the current thread and destroys it.  Never
     returns to the caller. */
 void thread_exit(void) {
+    struct list_elem *e;
     ASSERT(!intr_context());
 
 #ifdef USERPROG
     process_exit();
 #endif
+
+    /* Up ashes' semaphore */
+    sema_up(&thread_current()->ashes->sema);
+
+//printf("p_tid=%d\n", thread_current()->tid);
+    if (!list_empty(&thread_current()->children) && thread_current() != initial_thread) {
+        for (e = list_front(&thread_current()->children); 
+             e != list_tail(&thread_current()->children); 
+             e = list_next(e))
+        {
+//printf("c_tid=%d\n", list_entry(e, struct thread_ashes, elem)->tid);
+            free(list_entry(e, struct thread_ashes, elem));
+        }
+    }
 
     /* Remove thread from all threads list, set our status to dying,
        and schedule another process.  That process will destroy us
