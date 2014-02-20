@@ -31,26 +31,47 @@ static bool put_user (uint8_t *udst, uint8_t byte) {
     return error_code != -1;
 }
 
+static inline bool get_user_word(uint8_t *dest, const uint8_t *src) {
+    int i;
+    if (src + 4 > (uint8_t*)PHYS_BASE) { return false; }
+    i = get_user(src++);
+    if (i < 0) { return false; } else { *dest++ = (uint8_t)i; }
+    i = get_user(src++);
+    if (i < 0) { return false; } else { *dest++ = (uint8_t)i; }
+    i = get_user(src++);
+    if (i < 0) { return false; } else { *dest++ = (uint8_t)i; }
+    i = get_user(src++);
+    if (i < 0) { return false; } else { *dest++ = (uint8_t)i; }
+    return true;
+}
+
+static inline void get_user_arg(int32_t *dest, const uint32_t *src, uint32_t offset) {
+    if (!get_user_word((uint8_t*)&dest[offset], (uint8_t*)&src[offset]))
+        thread_exit();
+}
+
 static void syscall_handler(struct intr_frame *f) {
   // Take a look at the system call number; this is the first
   // thing on the caller's stack. While we're here, might as
   // well get the others.
-  int num = *((int *)f->esp);
-  int arg1 = ((int *)f->esp)[1];
-  int arg2 = ((int *)f->esp)[2];
-  unsigned arg3 = ((unsigned *)f->esp)[3];
+  int32_t args[4];
+
+  get_user_arg(args, f->esp, 0);
+
   // printf("%d %d %d %d\n", num, arg1, arg2, arg3);
   // Technically these are an enum, but C implements enums as ints...
-  switch(num) {
+  switch(args[0]) {
+
   case SYS_HALT:
     shutdown_power_off();
     break;
+
   case SYS_EXIT:
-    // Grab the argument off the stack and set the return value
-    // f->eax = arg1;
-    thread_current()->exit_status = arg1;
+    get_user_arg(args, f->esp, 1);
+    thread_current()->exit_status = args[1];
     thread_exit();
     break;
+
   case SYS_EXEC:
     break;
   case SYS_WAIT:
@@ -61,22 +82,21 @@ static void syscall_handler(struct intr_frame *f) {
     break;
   case SYS_OPEN:
     break;
+
   case SYS_WRITE:
     // Using the second solution; we need to check that it's really valid to
     // read the buffer
-    if ((arg2 < PHYS_BASE) && (get_user((uint8_t *) arg2) != -1)) {
-      if (arg1 == 1) { // stdout
-	putbuf((char *)arg2, arg3);
-      }
-      else { // TODO: implement
-      }
+    get_user_arg(args, f->esp, 1);
+    get_user_arg(args, f->esp, 2);
+    get_user_arg(args, f->esp, 3);
+
+    if (args[1] == 1) { // stdout
+      putbuf((char *)args[2], (uint32_t)args[3]);
     }
-    else {
-      // Well, killing the process seems like a good idea
-      thread_exit();
+    else { // TODO: implement
     }
-    //printf("%d %d %d %d\n", num, arg1, arg2, arg3);
     break;
+
   case SYS_SEEK:
     break;
   case SYS_TELL:
@@ -88,6 +108,7 @@ static void syscall_handler(struct intr_frame *f) {
     printf("unrecognized system call\n");
     thread_exit();
   }
+
   //  printf("system call!\n");
   //  thread_exit();
 }
