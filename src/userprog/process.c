@@ -79,10 +79,29 @@ static void start_process(void *file_name_) {
 
     This function will be implemented in problem 2-2.  For now, it does
     nothing. */
-int process_wait(tid_t child_tid UNUSED) {
-  for(;;) // TODO: actually implement
-    thread_yield();
+int process_wait(tid_t child_tid) {
+  struct thread *cur = thread_current();
+  struct list_elem *e;
+  struct thread_ashes *a = NULL;
+
+  if (!list_empty(&cur->children)) {
+    for (e = list_front(&cur->children); 
+         e != list_tail(&cur->children); 
+         e = list_next(e))
+    {
+      a = list_entry(e, struct thread_ashes, elem);
+      if (a->tid == child_tid && !a->has_been_waited)
+        break;
+      else
+        a = NULL;
+    }
+  }
+
+  if (a == NULL)
     return -1;
+
+  sema_down(&a->sema);
+  return a->exit_status;
 }
 
 /*! Free the current process's resources. */
@@ -433,7 +452,7 @@ static inline char* kpage_to_phys(char *kpage, char *ptr) {
 /*! Create a minimal stack by mapping a zeroed page at the top of
     user virtual memory. */
 static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
-    uint8_t *kpage;
+    char *kpage;
     bool success = false;
     char *stack, *tok;
     uint32_t argc, i;

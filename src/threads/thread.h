@@ -184,6 +184,7 @@ int thread_get_load_avg(void);
 
 struct thread_ashes {
     tid_t tid;
+    bool has_been_waited;
     int32_t exit_status;
     struct semaphore sema;
     struct thread *thread;

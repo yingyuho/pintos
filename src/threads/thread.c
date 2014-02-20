@@ -36,7 +36,7 @@ static struct thread *idle_thread;
 
 /*! Initial thread, the thread running init.c:main(). */
 static struct thread *initial_thread;
-static struct thread_ashes initial_thread_ashes;
+//static struct thread_ashes initial_thread_ashes;
 
 /*! Lock used by allocate_tid(). */
 static struct lock tid_lock;
@@ -110,12 +110,13 @@ void thread_init(void) {
     initial_thread->tid = allocate_tid();
 
     /* Init ashes */
+#if 0
     a = initial_thread->ashes = &initial_thread_ashes;
     a->tid = initial_thread->tid;
     a->exit_status = -1;
     a->thread = initial_thread;
     sema_init(&a->sema, 0);
-
+#endif
     list_init(&initial_thread->children);
 
     /* Initialize MLFQS variable(s) */
@@ -296,6 +297,7 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
     a = t->ashes = malloc(sizeof(struct thread_ashes));
 //printf("a=%lu\n", a);
     a->tid = tid;
+    a->has_been_waited = false;
     a->exit_status = -1;
     a->thread = t;
     sema_init(&a->sema, 0);
@@ -409,6 +411,8 @@ tid_t thread_tid(void) {
     returns to the caller. */
 void thread_exit(void) {
     struct list_elem *e;
+    struct thread_ashed *a;
+    struct thread *cur = thread_current();
     ASSERT(!intr_context());
 
 #ifdef USERPROG
@@ -416,16 +420,19 @@ void thread_exit(void) {
 #endif
 
     /* Up ashes' semaphore */
-    sema_up(&thread_current()->ashes->sema);
+    if (cur->ashes)
+        sema_up(&cur->ashes->sema);
 
 //printf("p_tid=%d\n", thread_current()->tid);
-    if (!list_empty(&thread_current()->children) && thread_current() != initial_thread) {
-        for (e = list_front(&thread_current()->children); 
-             e != list_tail(&thread_current()->children); 
+    if (!list_empty(&cur->children) && cur != initial_thread) {
+        for (e = list_front(&cur->children); 
+             e != list_tail(&cur->children); 
              e = list_next(e))
         {
 //printf("c_tid=%d\n", list_entry(e, struct thread_ashes, elem)->tid);
-            free(list_entry(e, struct thread_ashes, elem));
+            a = list_entry(e, struct thread_ashes, elem);
+            free(a);
+            a = NULL;
         }
     }
 
@@ -433,8 +440,8 @@ void thread_exit(void) {
        and schedule another process.  That process will destroy us
        when it calls thread_schedule_tail(). */
     intr_disable();
-    list_remove(&thread_current()->allelem);
-    thread_current()->status = THREAD_DYING;
+    list_remove(&cur->allelem);
+    cur->status = THREAD_DYING;
     schedule();
     NOT_REACHED();
 }
