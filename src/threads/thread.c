@@ -108,6 +108,7 @@ void thread_init(void) {
     init_thread(initial_thread, "main", PRI_DEFAULT);
     initial_thread->status = THREAD_RUNNING;
     initial_thread->tid = allocate_tid();
+    initial_thread->exit_status = -1;
 
     /* Init ashes */
 #if 0
@@ -293,6 +294,8 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
     }
     tid = t->tid = allocate_tid();
 
+    t->exit_status = -1;
+
     /* Init ashes */
     a = t->ashes = malloc(sizeof(struct thread_ashes));
 //printf("a=%lu\n", a);
@@ -423,13 +426,11 @@ void thread_exit(void) {
     if (cur->ashes)
         sema_up(&cur->ashes->sema);
 
-//printf("p_tid=%d\n", thread_current()->tid);
     if (!list_empty(&cur->children) && cur != initial_thread) {
         for (e = list_front(&cur->children); 
              e != list_tail(&cur->children); 
              e = list_next(e))
         {
-//printf("c_tid=%d\n", list_entry(e, struct thread_ashes, elem)->tid);
             a = list_entry(e, struct thread_ashes, elem);
             free(a);
             a = NULL;
@@ -657,7 +658,11 @@ static void init_thread(struct thread *t, const char *name, int priority) {
 
     memset(t, 0, sizeof *t);
     t->status = THREAD_BLOCKED;
+
     strlcpy(t->name, name, sizeof t->name);
+    if (strchr(t->name, ' ') != NULL)
+        *strchr(t->name, ' ') = '\0';
+
     t->stack = (uint8_t *) t + PGSIZE;
     t->priority = priority;
     t->cur_pri = priority;

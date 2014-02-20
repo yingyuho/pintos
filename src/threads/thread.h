@@ -102,6 +102,7 @@ struct thread {
     /**@{*/
     tid_t tid;                          /*!< Thread identifier. */
     enum thread_status status;          /*!< Thread state. */
+    int32_t exit_status;
     char name[16];                      /*!< Name (for debugging purposes). */
     uint8_t *stack;                     /*!< Saved stack pointer. */
     int priority;                       /*!< Priority. */

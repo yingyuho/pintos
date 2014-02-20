@@ -47,7 +47,8 @@ static void syscall_handler(struct intr_frame *f) {
     break;
   case SYS_EXIT:
     // Grab the argument off the stack and set the return value
-    f->eax = arg1;
+    // f->eax = arg1;
+    thread_current()->exit_status = arg1;
     thread_exit();
     break;
   case SYS_EXEC:

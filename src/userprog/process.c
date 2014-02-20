@@ -75,10 +75,7 @@ static void start_process(void *file_name_) {
     terminated by the kernel (i.e. killed due to an exception), returns -1.
     If TID is invalid or if it was not a child of the calling process, or if
     process_wait() has already been successfully called for the given TID,
-    returns -1 immediately, without waiting.
-
-    This function will be implemented in problem 2-2.  For now, it does
-    nothing. */
+    returns -1 immediately, without waiting. */
 int process_wait(tid_t child_tid) {
   struct thread *cur = thread_current();
   struct list_elem *e;
@@ -109,6 +106,9 @@ void process_exit(void) {
     struct thread *cur = thread_current();
     uint32_t *pd;
 
+    /* Process termination message */
+    printf ("%s: exit(%d)\n", cur->name, cur->exit_status);
+
     /* Destroy the current process's page directory and switch back
        to the kernel-only page directory. */
     pd = cur->pagedir;
@@ -137,7 +137,7 @@ void process_activate(void) {
     /* Set thread's kernel stack for use in processing interrupts. */
     tss_update();
 }
-
+
 /*! We load ELF binaries.  The following definitions are taken
     from the ELF specification, [ELF1], more-or-less verbatim.  */
 
@@ -344,7 +344,7 @@ done:
     file_close(file);
     return success;
 }
-
+
 /* load() helpers. */
 
 static bool install_page(void *upage, void *kpage, bool writable);
@@ -455,7 +455,7 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
     char *kpage;
     bool success = false;
     char *stack, *tok;
-    uint32_t argc, i;
+    uint32_t argc = 0, i;
 
     kpage = palloc_get_page(PAL_USER | PAL_ZERO);
     if (kpage != NULL) {
@@ -474,16 +474,13 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
           stack -= strlen(exec_name) + 1;
           memcpy(stack, exec_name,  strlen(exec_name) + 1);
 
-          /* Make sure argc > 0 */
-          argc = (*exec_name != '\0');
-          ASSERT(argc == 1);
-
           /* Count argc */
           tok = stack;
-          while ((tok = strchr(tok, ' ')) != NULL) {
-            ++argc;
-            ++tok;
-          }
+          while(*tok != '\0')
+            argc += (*tok++ != ' ' && (*tok == ' ' || *tok == '\0'));
+
+          /* Make sure argc > 0 */
+          ASSERT(argc > 0);
 
           /* Take note of the start of cmdline */
           tok = stack;
@@ -500,7 +497,8 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
           for (tok = strtok_r(tok, " ", &saveptr); 
                tok; 
                tok = strtok_r(NULL, " ", &saveptr)) {
-            ((char**)stack)[i++] = kpage_to_phys(kpage, tok);
+            if (*tok != '\0')
+              ((char**)stack)[i++] = kpage_to_phys(kpage, tok);
           }
 
           /* Push argv */
