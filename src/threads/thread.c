@@ -7,6 +7,7 @@
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/switch.h"
 #include "threads/synch.h"
@@ -120,7 +121,7 @@ void thread_start(void) {
     
     /* Set up locks for the initial thread */
     if (!thread_mlfqs) {
-      initial_thread->locks = palloc_get_page(PAL_ZERO);
+      initial_thread->locks = malloc(sizeof(struct list));
       list_init(initial_thread->locks);
     }
     else {
@@ -275,7 +276,7 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
         init_thread(t, name, auto_priority(t));
     else {
         init_thread(t, name, priority);
-	t->locks = palloc_get_page(PAL_ZERO);
+	t->locks = malloc(sizeof(struct list));
 	list_init(t->locks);
     }
     tid = t->tid = allocate_tid();
@@ -682,7 +683,7 @@ void thread_schedule_tail(struct thread *prev) {
         prev != initial_thread) {
         ASSERT(prev != cur);
 	if (!thread_mlfqs)
-	  palloc_free_page(prev->locks);
+	  free(prev->locks);
         palloc_free_page(prev);
     }
 }
