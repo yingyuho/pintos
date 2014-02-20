@@ -120,7 +120,7 @@ void thread_start(void) {
     
     /* Set up locks for the initial thread */
     if (!thread_mlfqs) {
-      initial_thread->locks = palloc_get_page(0);
+      initial_thread->locks = palloc_get_page(PAL_ZERO);
       list_init(initial_thread->locks);
     }
     else {
@@ -275,7 +275,7 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
         init_thread(t, name, auto_priority(t));
     else {
         init_thread(t, name, priority);
-	t->locks = palloc_get_page(0);
+	t->locks = palloc_get_page(PAL_ZERO);
 	list_init(t->locks);
     }
     tid = t->tid = allocate_tid();
