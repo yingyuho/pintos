@@ -436,75 +436,67 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
     uint8_t *kpage;
     bool success = false;
     char *stack, *tok;
+    uint32_t argc, i;
 
     kpage = palloc_get_page(PAL_USER | PAL_ZERO);
     if (kpage != NULL) {
         success = install_page(((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
         if (success) {
-	  /* Note that the names are being put on the stack in reverse
-	     order; this does not matter, because we only access
-	     them through pointers. We then construct argv by looking
-	     through the names backwards. */
 
-	  /* For "portability" I should probably use sizeof instead of
-	     assuming sizes are 4 */
-	  stack = (char *)kpage + PGSIZE;
+          /* For "portability" I should probably use sizeof instead of
+             assuming sizes are 4 */
+          stack = (char *)kpage + PGSIZE;
 
-	  /* First, push the name onto the stack */
-	  stack -= strlen(exec_name) + 1;
-	  memcpy(stack, exec_name,  strlen(exec_name) + 1);
+          /* Restore exec_name to the whole cmdline */
+          if (*saveptr != '\0')
+            *(saveptr - 1) = ' ';
 
-	  /* Now go through the rest of the arguments (if any) */
+          /* First, push the name onto the stack */
+          stack -= strlen(exec_name) + 1;
+          memcpy(stack, exec_name,  strlen(exec_name) + 1);
 
-	  for(;;) {
-	    tok = strtok_r(NULL, " ", &saveptr);
-	    if (tok == NULL)
-	      break;
-	    /* Push this argument onto the stack, basically the same
-	       way as before */
-	    stack -= strlen(tok) + 1;
-	    memcpy(stack, tok, strlen(tok) + 1);
-	  }
+          /* Make sure argc > 0 */
+          argc = (*exec_name != '\0');
+          ASSERT(argc == 1);
 
-	  /* Pad the stack out. The page is already zeroed when allocated,
-	     so that's okay */
-	  stack -= (((int)stack) % 4);
+          /* Count argc */
+          tok = stack;
+          while ((tok = strchr(tok, ' ')) != NULL) {
+            ++argc;
+            ++tok;
+          }
 
-	  /* Now to actually set up argv */
-	  unsigned argc;
-	  stack -= 4; /* argv[argc] is 0 */
+          /* Take note of the start of cmdline */
+          tok = stack;
 
-	  /* Reusing this pointer to iterate through the arguments */
-	  tok = stack;
-	  
-	  for (argc = 1;; ++argc) {
-	    while ((tok < (char *)kpage + PGSIZE) && (*tok == 0))
-	      tok++;
-	    if (tok == (char *)kpage + PGSIZE)
-	      break;
-	    /* This is the start of the argument */
-	    ((char **)stack)[-argc] = kpage_to_phys(kpage, tok);
-	    while (*tok) {
-	      tok++;
-	    }
-	  }
-	  --argc;
-	  stack -= 4 * (argc); // The reason for doing it this way
-	  // is mostly to simplify the loop
-	  
-	  // And now we push argv (which is just the stack address itself!)
-	  ((char **)stack)[-1] = kpage_to_phys(kpage, stack);
-	  
-	  // And argc and the "return address". The page was already zeroed
-	  // so the return address is fine.
-	  stack -= 12;
-	  ((unsigned *)stack)[1] = argc;
-	  
-	  /*hex_dump((unsigned)PHYS_BASE - ((char *)kpage + PGSIZE - stack),
-	    stack, (char *)kpage + PGSIZE - stack, true); */
+          /* Pad the stack out. The page is already zeroed when allocated,
+             so that's okay */
+          stack -= (((uint32_t)stack) % sizeof(char*));
 
-	  *esp = (stack - (char *)kpage - PGSIZE + PHYS_BASE);
-	}
+          /* Reserve spaces for argv[i], 0 <= i <= argc */
+          stack -= (argc + 1) * sizeof(char*);
+
+          /* Fill argv[i], 0 <= i < argc */
+          i = 0;
+          for (tok = strtok_r(tok, " ", &saveptr); 
+               tok; 
+               tok = strtok_r(NULL, " ", &saveptr)) {
+            ((char**)stack)[i++] = kpage_to_phys(kpage, tok);
+          }
+
+          /* Push argv */
+          ((char**)stack)[-1] = kpage_to_phys(kpage, stack);
+          stack -= sizeof(char*);
+
+          /* Push argc */
+          ((uint32_t*)stack)[-1] = argc;
+          stack -= sizeof(uint32_t);
+
+          /* Empty return address */
+          stack -= sizeof(void*);
+
+          *esp = (stack - (char *)kpage - PGSIZE + PHYS_BASE);
+        }
         else
             palloc_free_page(kpage);
     }
