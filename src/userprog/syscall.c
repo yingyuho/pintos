@@ -64,6 +64,14 @@ static inline void get_user_arg(int32_t *dest, const uint32_t *src, uint32_t off
         thread_exit();
 }
 
+static void check_write_array(uint8_t *ptr, int len) {
+// Don't think ahout this code too hard
+if (put_user(ptr, *ptr) == -1)
+    thread_exit();
+if (put_user(ptr + len - 1, ptr[len-1]) == -1)
+    thread_exit();
+}
+
 static void check_array(uint8_t *ptr, int len) {
   // A somewhat halfhearted check of whether an array is valid (it will work
   // for small enough arrays); just checks the first and last bytes.
@@ -220,6 +228,70 @@ static void syscall_handler(struct intr_frame *f) {
     
     cur->nfiles++;
     return;
+    break;
+
+  case SYS_FILESIZE:
+    get_user_arg(args, f->esp, 1);
+    // Return -1 if fd is not valid
+    f->eax = -1;
+    // Find the appropriate file
+    for (i = 0; i < cur->nfiles && i < 64; ++i) {
+      if (cur->files[0][i].fd == args[1]) {
+	lock_acquire(&fs_lock);
+        f->eax = file_length(cur->files[0][i].f);
+	lock_release(&fs_lock);
+	return;
+      }
+    }
+
+    for (i = 0; i < cur->nfiles - 64; ++i) {
+      if (cur->files[1][i].fd == args[1]) {
+	lock_acquire(&fs_lock);
+        f->eax = file_length(cur->files[1][i].f);
+	lock_release(&fs_lock);
+	return;
+      }
+    }
+    break;
+  case SYS_READ:
+    get_user_arg(args, f->esp, 1);
+    get_user_arg(args, f->esp, 2);
+    get_user_arg(args, f->esp, 3);
+
+    if ((args[2] == 0) || (args[2] >= PHYS_BASE))
+      thread_exit();
+
+    // Verify the buffer
+    check_write_array(args[2], args[3]);
+
+    if (args[1] == 0) { // stdin
+      for(i = 0; i < args[3]; ++i) {
+	((uint8_t *)args[2])[i] = input_getc();
+	// how would you detect EOF though? hmm.
+      }
+      f->eax = i;
+      return;
+    }
+    else {
+      // Find the file
+      for (i = 0; i < cur->nfiles && i < 64; ++i) {
+	if (cur->files[0][i].fd == args[1]) {
+	  lock_acquire(&fs_lock);
+	  f->eax = file_read(cur->files[0][i].f, (void *)args[2], args[3]);
+	  lock_release(&fs_lock);
+	  return;
+	}
+      }
+      
+      for (i = 0; i < cur->nfiles - 64; ++i) {
+	if (cur->files[1][i].fd == args[1]) {
+	  lock_acquire(&fs_lock);
+	  f->eax = file_read(cur->files[1][i].f, (void *)args[2], args[3]);
+	  lock_release(&fs_lock);
+	  return;
+	}
+      }
+    }
     break;
 
   case SYS_WRITE:
