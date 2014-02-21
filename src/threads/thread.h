@@ -11,6 +11,8 @@
 #include <stdint.h>
 #include "threads/synch.h"
 
+#include "filesys/file.h"
+
 struct thread;
 struct thread_ashes;
 
@@ -136,6 +138,8 @@ struct thread {
   // The reason for having two of them is so we can avoid allocating pages
   // until actually necessary
   int nfiles; // number of open files
+
+  struct file *exec; // executable
 #endif
 
     /*! Owned by thread.c. */

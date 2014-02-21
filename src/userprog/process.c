@@ -55,8 +55,9 @@ static void start_process(void *file_name_) {
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
-
+    
     thread_current()->load_success = success;
+
     sema_up(&thread_current()->load_done);
 
     /* If load failed, quit. */
@@ -350,7 +351,8 @@ bool load(const char *file_name, void (**eip) (void), void **esp) {
 
 done:
     /* We arrive here whether the load is successful or not. */
-    file_close(file);
+    //file_close(file);
+    thread_current()->exec = file;
     return success;
 }
 

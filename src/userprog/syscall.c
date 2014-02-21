@@ -75,6 +75,9 @@ static int wait_load(tid_t tid) {
   struct list_elem *e;
   struct thread_ashes *a = NULL;
 
+  if (tid == TID_ERROR)
+    return -1;
+
   if (!list_empty(&cur->children)) {
     for (e = list_back(&cur->children); 
          e != list_head(&cur->children); 
@@ -168,11 +171,32 @@ static void syscall_handler(struct intr_frame *f) {
     get_user_arg(args, f->esp, 1);
     thread_current()->exit_status = args[1];
     thread_current()->ashes->exit_status = args[1];
+    // Clean up all open file descriptors, including its own
+    for (i = 0; i < cur->nfiles && i < 64; ++i) {
+      if (cur->files[0][i].fd == args[1]) {
+	lock_acquire(&fs_lock);
+        file_close(cur->files[0][i].f);
+	lock_release(&fs_lock);
+	return;
+      }
+    }
+
+    for (i = 0; i < cur->nfiles - 64; ++i) {
+      if (cur->files[1][i].fd == args[1]) {
+	lock_acquire(&fs_lock);
+        file_close(cur->files[1][i].f);
+	lock_release(&fs_lock);
+	return;
+      }
+    }
+
+    file_close(cur->exec);
     thread_exit();
     break;
 
   case SYS_EXEC:
     get_user_arg(args, f->esp, 1);
+    f->eax = -1;
     if (get_user((uint8_t*)args[1]) < 0) { thread_exit(); }
     //len = strlen((const char*)args[1]) + 1;
     //buf = malloc(len);
@@ -349,7 +373,6 @@ static void syscall_handler(struct intr_frame *f) {
       // We're writing to console so we'll always write everything
       f->eax = args[3];
 
-      // TODO: Separate into some large number of writes if necessary
       while ((uint32_t)args[3] > 256) {
 	// Check whether the first and last bytes are valid
 	if (get_user((uint8_t *)args[2]) == -1)
@@ -419,7 +442,7 @@ static void syscall_handler(struct intr_frame *f) {
   case SYS_TELL:
     get_user_arg(args, f->esp, 1);
     // Find the appropriate file
-        for (i = 0; i < cur->nfiles && i < 64; ++i) {
+    for (i = 0; i < cur->nfiles && i < 64; ++i) {
       if (cur->files[0][i].fd == args[1]) {
 	lock_acquire(&fs_lock);
         f->eax = file_tell(cur->files[0][i].f);
