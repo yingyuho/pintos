@@ -185,8 +185,18 @@ i.e., when we are sure that process_wait(tid) is no longer meaningful.
 >> B9: Why did you choose to implement access to user memory from the
 >> kernel in the way that you did?
 
+Handling it via kernel page faults is faster and not that much more
+complicated.
+
 >> B10: What advantages or disadvantages can you see to your design
 >> for file descriptors?
+
+The design for file descriptors wastes a lot of memory if there are very
+few file descriptors open per process and incurs a lot of overhead if
+processes go between 0 and 1 or 64 and 65 open files. On the other hand, 
+storing all file descriptors in a global list would increase access times 
+and cause synchronization problems (only one process would be allowed to 
+work with the list at any time).
 
 >> B11: The default tid_t to pid_t mapping is the identity mapping.
 >> If you changed it, what advantages are there to your approach?
