@@ -11,6 +11,12 @@
 
 static void syscall_handler(struct intr_frame *);
 
+struct file {
+    struct inode *inode;        /*!< File's inode. */
+    off_t pos;                  /*!< Current position. */
+    bool deny_write;            /*!< Has file_deny_write() been called? */
+};
+
 void syscall_init(void) {
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
@@ -96,6 +102,7 @@ static void syscall_handler(struct intr_frame *f) {
   // thing on the caller's stack. While we're here, might as
   // well get the others.
   int32_t args[4];
+  int i;
   
   // Sanity check: Stack pointer should not be below the code segment (how
   // would you even get there)
@@ -233,9 +240,29 @@ static void syscall_handler(struct intr_frame *f) {
 	thread_exit();
       putbuf((char *)args[2], (uint32_t)args[3]);
     }
-    else { // TODO: implement (once file descriptors are working)
-      // Basically, check how many bytes we have to EOF and then write 
-      // up to that many bytes.
+    else {
+      // Check whether the buffer is valid
+      check_array(args[2], args[3]);
+      
+      // Find the file to write to
+      for (i = 0; i < cur->nfiles && i < 64; ++i) {
+	if (cur->files[0][i].fd == args[1]) {
+	  // Write to this file
+	  f->eax = file_write_at(cur->files[0][i].f, args[2], args[3],
+				 cur->files[0][i].f->pos);
+	  return;
+	}
+      }
+      for (i = 0; i < cur->nfiles - 64; ++i) {
+	if (cur->files[1][i].fd == args[1]) {
+	  f->eax = file_write_at(cur->files[1][i].f, args[2], args[3],
+				 cur->files[1][i].f->pos);
+	  return;
+	}
+      }
+      // Invalid fd?
+      f->eax = 0;
+      return;
     }
     break;
 
@@ -248,7 +275,6 @@ static void syscall_handler(struct intr_frame *f) {
     // iterate through the table of files and remove the appropriate entry
     // if found.
     get_user_arg(args, f->esp, 1);
-    int i;
     for (i = 0; i < cur->nfiles && i < 64; ++i) {
       if (cur->files[0][i].fd == args[1]) {
 	// Close this file
