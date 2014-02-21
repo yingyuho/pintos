@@ -5,9 +5,12 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+#include "threads/synch.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include <string.h>
+
+static struct lock fs_lock;
 
 static void syscall_handler(struct intr_frame *);
 
@@ -19,6 +22,7 @@ struct file {
 
 void syscall_init(void) {
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
+    lock_init(&fs_lock);
 }
 
 /*! Reads a byte at user virtual address UADDR.
@@ -94,6 +98,7 @@ static bool check_filename(char *str) {
 // than that it's positive and not equal to any other fd open by the file...
 static int next_fd = 10;
 
+
 // TODO: All filesys functions should be in critical sections (could use
 // some sort of global lock for example)
 
@@ -142,7 +147,9 @@ static void syscall_handler(struct intr_frame *f) {
 
     // Try to create the file. I don't really think I need to check the
     // initial size here...
+    lock_acquire(&fs_lock);
     f->eax = filesys_create(args[1], args[2]);
+    lock_release(&fs_lock);
     return;
     break;
   case SYS_REMOVE:
@@ -165,7 +172,9 @@ static void syscall_handler(struct intr_frame *f) {
     }
 
     // Try to open the file
+    lock_acquire(&fs_lock);
     struct file *ff = filesys_open((char *)args[1]);
+    lock_release(&fs_lock);
     if (ff == NULL) {
       // File couldn't be opened (for whatever reason)
       return;
@@ -176,7 +185,9 @@ static void syscall_handler(struct intr_frame *f) {
       cur->files[0] = (struct file_node *) palloc_get_page(0);
       // If this allocation failed, close the file and return -1
       if (cur->files[0] == NULL) {
+	lock_acquire(&fs_lock);
 	file_close(ff);
+	lock_release(&fs_lock);
 	return;
       }
     }
@@ -184,7 +195,9 @@ static void syscall_handler(struct intr_frame *f) {
       cur->files[1] = (struct file_node *) palloc_get_page(0);
       // If this allocation failed, close the file and return -1
       if (cur->files[1] == NULL) {
+	lock_acquire(&fs_lock);
 	file_close(ff);
+	lock_release(&fs_lock);
 	return;
       }
     }
@@ -248,15 +261,17 @@ static void syscall_handler(struct intr_frame *f) {
       for (i = 0; i < cur->nfiles && i < 64; ++i) {
 	if (cur->files[0][i].fd == args[1]) {
 	  // Write to this file
-	  f->eax = file_write_at(cur->files[0][i].f, args[2], args[3],
-				 cur->files[0][i].f->pos);
+	  lock_acquire(&fs_lock);
+	  f->eax = file_write(cur->files[0][i].f, args[2], args[3]);
+	  lock_release(&fs_lock);
 	  return;
 	}
       }
       for (i = 0; i < cur->nfiles - 64; ++i) {
 	if (cur->files[1][i].fd == args[1]) {
-	  f->eax = file_write_at(cur->files[1][i].f, args[2], args[3],
-				 cur->files[1][i].f->pos);
+	  lock_acquire(&fs_lock);
+	  f->eax = file_write(cur->files[1][i].f, args[2], args[3]);
+	  lock_release(&fs_lock);
 	  return;
 	}
       }
@@ -267,8 +282,49 @@ static void syscall_handler(struct intr_frame *f) {
     break;
 
   case SYS_SEEK:
+    get_user_arg(args, f->esp, 1);
+    get_user_arg(args, f->esp, 2);
+    // Find the appropriate file
+        for (i = 0; i < cur->nfiles && i < 64; ++i) {
+      if (cur->files[0][i].fd == args[1]) {
+	lock_acquire(&fs_lock);
+        file_seek(cur->files[0][i].f, args[2]);
+	lock_release(&fs_lock);
+	return;
+      }
+    }
+
+    for (i = 0; i < cur->nfiles - 64; ++i) {
+      if (cur->files[1][i].fd == args[1]) {
+	lock_acquire(&fs_lock);
+        file_seek(cur->files[1][i].f, args[2]);
+	lock_release(&fs_lock);
+	return;
+      }
+    }
     break;
   case SYS_TELL:
+    get_user_arg(args, f->esp, 1);
+    // Find the appropriate file
+        for (i = 0; i < cur->nfiles && i < 64; ++i) {
+      if (cur->files[0][i].fd == args[1]) {
+	lock_acquire(&fs_lock);
+        f->eax = file_tell(cur->files[0][i].f);
+	lock_release(&fs_lock);
+	return;
+      }
+    }
+
+    for (i = 0; i < cur->nfiles - 64; ++i) {
+      if (cur->files[1][i].fd == args[1]) {
+	lock_acquire(&fs_lock);
+        f->eax = file_tell(cur->files[1][i].f);
+	lock_release(&fs_lock);
+	return;
+      }
+    }
+    // Kill the thread :)
+    thread_exit();
     break;
   case SYS_CLOSE:
     // Close doesn't actually return anything. Retrieve the fd, then
@@ -278,7 +334,9 @@ static void syscall_handler(struct intr_frame *f) {
     for (i = 0; i < cur->nfiles && i < 64; ++i) {
       if (cur->files[0][i].fd == args[1]) {
 	// Close this file
+	lock_acquire(&fs_lock);
 	file_close(cur->files[0][i].f);
+	lock_release(&fs_lock);
 	// Move the last entry in the table here
 	cur->nfiles--;
 	if (cur->nfiles < 64) {
@@ -303,7 +361,9 @@ static void syscall_handler(struct intr_frame *f) {
 
     for (i = 0; i < cur->nfiles - 64; ++i) {
       if (cur->files[1][i].fd == args[1]) {
+	lock_acquire(&fs_lock);
 	file_close(cur->files[1][i].f);
+	lock_release(&fs_lock);
 	// Move the last entry in the table here
 	cur->nfiles--;
 	if (cur->nfiles == 64) {
