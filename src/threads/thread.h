@@ -132,6 +132,10 @@ struct thread {
     /**@{*/
     uint32_t *pagedir;                  /*!< Page directory. */
     /**@{*/
+  struct file_node *files[2]; // lists of open files
+  // The reason for having two of them is so we can avoid allocating pages
+  // until actually necessary
+  int nfiles; // number of open files
 #endif
 
     /*! Owned by thread.c. */
@@ -182,6 +186,10 @@ void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
 
+struct file_node {
+  int fd; // file descriptor for this node
+  struct file *f; //file
+};
 
 /* thread_ashes */
 
