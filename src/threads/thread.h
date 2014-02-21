@@ -113,6 +113,8 @@ struct thread {
 
     struct thread_ashes *ashes;
     struct list children; /* List of ashes */
+    struct semaphore load_done;
+    bool load_success;
 
     struct list *locks; /* Currently held locks */
     struct lock *bllock; /* Lock currently blocked on, if any */

@@ -4,6 +4,11 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/process.h"
+#include "devices/shutdown.h"
+
+int process_wait(tid_t);
+void shutdown_power_off(void) NO_RETURN;
 
 #include "threads/synch.h"
 #include "filesys/file.h"
@@ -63,6 +68,31 @@ static inline bool get_user_word(uint8_t *dest, const uint8_t *src) {
 static inline void get_user_arg(int32_t *dest, const uint32_t *src, uint32_t offset) {
     if (!get_user_word((uint8_t*)&dest[offset], (uint8_t*)&src[offset]))
         thread_exit();
+}
+
+static int wait_load(tid_t tid) {
+  struct thread *cur = thread_current();
+  struct list_elem *e;
+  struct thread_ashes *a = NULL;
+
+  if (!list_empty(&cur->children)) {
+    for (e = list_back(&cur->children); 
+         e != list_head(&cur->children); 
+         e = list_prev(e))
+    {
+      a = list_entry(e, struct thread_ashes, elem);
+      if (a->tid == tid)
+        break;
+      else
+        a = NULL;
+    }
+  }
+
+  if (a == NULL)
+    return -1;
+
+  sema_down(&a->thread->load_done);
+  return a->thread->load_success ? tid : -1;
 }
 
 static void check_write_array(uint8_t *ptr, int len) {
@@ -137,12 +167,22 @@ static void syscall_handler(struct intr_frame *f) {
   case SYS_EXIT:
     get_user_arg(args, f->esp, 1);
     thread_current()->exit_status = args[1];
+    thread_current()->ashes->exit_status = args[1];
     thread_exit();
     break;
 
   case SYS_EXEC:
+    get_user_arg(args, f->esp, 1);
+    if (get_user((uint8_t*)args[1]) < 0) { thread_exit(); }
+    //len = strlen((const char*)args[1]) + 1;
+    //buf = malloc(len);
+    //strlcpy(buf, (const char*)args[1], len);
+    f->eax = wait_load(process_execute((const char*)args[1]));
+    //free(buf);
     break;
   case SYS_WAIT:
+    get_user_arg(args, f->esp, 1);
+    f->eax = process_wait(args[1]);
     break;
   case SYS_CREATE:
     get_user_arg(args, f->esp, 1);
