@@ -92,6 +92,8 @@ Static variable:
 In struct thread:
   struct file_node *files[2]; // lists of open files
   int nfiles; // number of open files
+  
+(files is actually oversized; originally file_node was going to be larger)
 
 >> B2: Describe how file descriptors are associated with open files.
 >> Are file descriptors unique within the entire OS or just within a
@@ -109,12 +111,17 @@ the OS.
 >> B3: Describe your code for reading and writing user data from the
 >> kernel.
 
+The second method described in 5.1.5 is used. The pointer is checked
+for validity (not null, below PHYS_BASE) and then dereferenced.
+
 >> B4: Suppose a system call causes a full page (4,096 bytes) of data
 >> to be copied from user space into the kernel.  What is the least
 >> and the greatest possible number of inspections of the page table
 >> (e.g. calls to pagedir_get_page()) that might result?  What about
 >> for a system call that only copies 2 bytes of data?  Is there room
 >> for improvement in these numbers, and how much?
+
+1 and 2, for both. The data could span two pages in either case.
 
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
@@ -151,6 +158,17 @@ to overwrite the default value -1.
 >> allocated resources (locks, buffers, etc.) are freed?  In a few
 >> paragraphs, describe the strategy or strategies you adopted for
 >> managing these issues.  Give an example.
+
+Avoiding obscuring the code is done by refactoring code to move some
+of the error checking away from the actual data access. There are
+several such functions in syscall.c.
+
+There are no temporarily allocated resources such as locks or buffers
+in the system call handler other than the global filesystem lock, and
+that is only acquired after error handling is done. Therefore no
+temporarily held resources exist when error checking is done and so
+there is no need to free them (the thread file descriptor table is
+freed by thread_exit()).
 
 ---- SYNCHRONIZATION ----
 
