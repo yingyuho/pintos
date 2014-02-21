@@ -27,6 +27,8 @@ Ying-Yu Ho <yingyu@caltech.edu>
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course instructors.
 
+Understanding the Linux Kernel, 3rd ed.
+
                            ARGUMENT PASSING
                            ================
 
@@ -128,14 +130,10 @@ struct thread_ashes {
 
 Each thread keeps a list of struct thread_ashes, each of which stores
 minimal information of a child thread. 
-
 thread_ashes.sema is intialized to 0, thread_ashes.exit_status to -1. 
-
 When a child thread terminates, it calls sema_up() on thread_ashes.sema
-
 When a parent thread calls wait(), it calls sema_up() on thread_ashes.sema
 and then retrieves thread_ashes.exit_status.
-
 When exit() is called, the status is passed to thread_ashes.exit_status
 to overwrite the default value -1.
 
