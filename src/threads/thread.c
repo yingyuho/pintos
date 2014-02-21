@@ -422,15 +422,36 @@ tid_t thread_tid(void) {
     return thread_current()->tid;
 }
 
+extern struct lock fs_lock;
+
 /*! Deschedules the current thread and destroys it.  Never
     returns to the caller. */
 void thread_exit(void) {
     struct list_elem *e;
     struct thread_ashes *a;
     struct thread *cur = thread_current();
+    int i;
     ASSERT(!intr_context());
 
 #ifdef USERPROG
+    // Clean up all open file descriptors, including its own
+    for (i = 0; i < cur->nfiles && i < 64; ++i) {
+      lock_acquire(&fs_lock);
+      file_close(cur->files[0][i].f);
+      lock_release(&fs_lock);
+    }
+    if (cur->nfiles)
+      palloc_free_page(cur->files[0]);
+
+    for (i = 0; i < cur->nfiles - 64; ++i) {
+      lock_acquire(&fs_lock);
+      file_close(cur->files[1][i].f);
+      lock_release(&fs_lock);
+    }
+    if (cur->nfiles > 64)
+      palloc_free_page(cur->files[1]);
+
+    file_close(cur->exec);
     process_exit();
 #endif
 

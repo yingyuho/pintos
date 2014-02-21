@@ -140,10 +140,6 @@ static bool check_filename(char *str) {
 // than that it's positive and not equal to any other fd open by the file...
 static int next_fd = 10;
 
-
-// TODO: All filesys functions should be in critical sections (could use
-// some sort of global lock for example)
-
 static void syscall_handler(struct intr_frame *f) {
   // Take a look at the system call number; this is the first
   // thing on the caller's stack. While we're here, might as
@@ -171,26 +167,6 @@ static void syscall_handler(struct intr_frame *f) {
     get_user_arg(args, f->esp, 1);
     thread_current()->exit_status = args[1];
     thread_current()->ashes->exit_status = args[1];
-    // Clean up all open file descriptors, including its own
-    for (i = 0; i < cur->nfiles && i < 64; ++i) {
-      if (cur->files[0][i].fd == args[1]) {
-	lock_acquire(&fs_lock);
-        file_close(cur->files[0][i].f);
-	lock_release(&fs_lock);
-	return;
-      }
-    }
-
-    for (i = 0; i < cur->nfiles - 64; ++i) {
-      if (cur->files[1][i].fd == args[1]) {
-	lock_acquire(&fs_lock);
-        file_close(cur->files[1][i].f);
-	lock_release(&fs_lock);
-	return;
-      }
-    }
-
-    file_close(cur->exec);
     thread_exit();
     break;
 
@@ -485,6 +461,7 @@ static void syscall_handler(struct intr_frame *f) {
 	  if (cur->nfiles == 0) {
 	    // deallocate files[0]
 	    palloc_free_page(cur->files[0]);
+	    cur->files[0] = NULL;
 	  }
 	}
 	else {
@@ -493,6 +470,7 @@ static void syscall_handler(struct intr_frame *f) {
 	  if (cur->nfiles == 64) {
 	    // deallocate files[1]
 	    palloc_free_page(cur->files[1]);
+	    cur->files[1] = NULL;
 	  }
 	}
 	return;
@@ -508,6 +486,7 @@ static void syscall_handler(struct intr_frame *f) {
 	cur->nfiles--;
 	if (cur->nfiles == 64) {
 	  palloc_free_page(cur->files[1]);
+	  cur->files[1] = NULL;
 	}
 	else {
 	  cur->files[1][i].fd = cur->files[1][cur->nfiles-64].fd;
