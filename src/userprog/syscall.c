@@ -201,7 +201,11 @@ static void syscall_handler(struct intr_frame *f) {
     //len = strlen((const char*)args[1]) + 1;
     //buf = malloc(len);
     //strlcpy(buf, (const char*)args[1], len);
-    f->eax = wait_load(process_execute((const char*)args[1]));
+    tid_t tid = process_execute((const char*)args[1]);
+    f->eax = wait_load(tid);
+    if (f->eax == -1)
+      process_wait(tid);
+        
     //free(buf);
     break;
   case SYS_WAIT:
