@@ -7,6 +7,7 @@
 
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include <string.h>
 
 static void syscall_handler(struct intr_frame *);
 
@@ -62,6 +63,27 @@ static void check_array(uint8_t *ptr, int len) {
     thread_exit();
 }
 
+// returns false if the filename is too long (>255 for now)
+static bool check_filename(char *str) {
+  if (str == NULL || str >= PHYS_BASE)
+    thread_exit();
+  // There should be a \0 somewhere in the first 256 bytes; otherwise the
+  // filename is way too long (or we've been passed an invalid
+  // pointer)
+  int i;
+  for (i = 0; i < 256; ++i) {
+    if (get_user(str+i) == 0)
+      break;
+    else if (get_user(str+i) == -1)
+      thread_exit();
+  }
+  if (i == 256) {
+    // The string is too long
+    return false;
+  }
+  return true;
+}
+
 // Since we have no particular guarantee on what open() will return other
 // than that it's positive and not equal to any other fd open by the file...
 static int next_fd = 10;
@@ -99,6 +121,19 @@ static void syscall_handler(struct intr_frame *f) {
   case SYS_WAIT:
     break;
   case SYS_CREATE:
+    get_user_arg(args, f->esp, 1);
+    get_user_arg(args, f->esp, 2);
+
+    // Check that the filename is valid
+    if(! check_filename(args[1])) {
+      f->eax = 0;
+      return;
+    }
+
+    // Try to create the file. I don't really think I need to check the
+    // initial size here...
+    f->eax = filesys_create(args[1], args[2]);
+    return;
     break;
   case SYS_REMOVE:
     break;
@@ -110,7 +145,8 @@ static void syscall_handler(struct intr_frame *f) {
 
     // Check whether the provided filename lives in userland
     if ((args[1] == NULL) || (args[1] >= PHYS_BASE) ||
-	(get_user((uint8_t *)args[1]) == -1)) {
+	(get_user((uint8_t *)args[1]) == -1) ||
+	(get_user((uint8_t *)args[1] + strlen((char *)args[1]) - 1) == -1)) {
       thread_exit();
     }
 
