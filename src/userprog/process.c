@@ -241,7 +241,7 @@ bool load(const char *file_name, void (**eip) (void), void **esp) {
       printf("Out of memory\n");
       goto done;
     }
-    strlcpy(buf, file_name, PGSIZE);
+    strlcpy(buf, file_name, PGSIZE/2);
 
     // Parse the first thing out
     exec_name = strtok_r(buf, " ", &saveptr);
