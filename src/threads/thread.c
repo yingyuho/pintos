@@ -96,7 +96,7 @@ static tid_t allocate_tid(void);
 
     It is not safe to call thread_current() until this function finishes. */
 void thread_init(void) {
-    struct thread_ashes *a;
+    //struct thread_ashes *a;
     ASSERT(intr_get_level() == INTR_OFF);
 
     lock_init(&tid_lock);
@@ -308,6 +308,8 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
     list_init(&t->children);
     list_push_back(&thread_current()->children, &a->elem);
 
+    sema_init(&t->load_done, 0);
+
     /* Stack frame for kernel_thread(). */
     kf = alloc_frame(t, sizeof *kf);
     kf->eip = NULL;
@@ -414,7 +416,7 @@ tid_t thread_tid(void) {
     returns to the caller. */
 void thread_exit(void) {
     struct list_elem *e;
-    struct thread_ashed *a;
+    struct thread_ashes *a;
     struct thread *cur = thread_current();
     ASSERT(!intr_context());
 
@@ -425,17 +427,6 @@ void thread_exit(void) {
     /* Up ashes' semaphore */
     if (cur->ashes)
         sema_up(&cur->ashes->sema);
-
-    if (!list_empty(&cur->children) && cur != initial_thread) {
-        for (e = list_front(&cur->children); 
-             e != list_tail(&cur->children); 
-             e = list_next(e))
-        {
-            a = list_entry(e, struct thread_ashes, elem);
-            free(a);
-            a = NULL;
-        }
-    }
 
     /* Remove thread from all threads list, set our status to dying,
        and schedule another process.  That process will destroy us
@@ -710,6 +701,7 @@ static struct thread * next_thread_to_run(void) {
    After this function and its caller returns, the thread switch is complete. */
 void thread_schedule_tail(struct thread *prev) {
     struct thread *cur = running_thread();
+    struct list_elem *e;
   
     ASSERT(intr_get_level() == INTR_OFF);
 
@@ -733,6 +725,19 @@ void thread_schedule_tail(struct thread *prev) {
         ASSERT(prev != cur);
 	if (!thread_mlfqs)
 	  free(prev->locks);
+#if 0
+    if (!list_empty(&prev->children) && 
+        prev != initial_thread)
+    {
+        for (e = list_front(&prev->children); 
+             e != list_tail(&prev->children); 
+             e = list_next(e))
+        {
+            printf("parent %s\n", prev->name);
+            free(list_entry(e, struct thread_ashes, elem));
+        }
+    }
+#endif
         palloc_free_page(prev);
     }
 }

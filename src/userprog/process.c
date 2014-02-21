@@ -56,6 +56,9 @@ static void start_process(void *file_name_) {
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
 
+    thread_current()->load_success = success;
+    sema_up(&thread_current()->load_done);
+
     /* If load failed, quit. */
     palloc_free_page(file_name);
     if (!success) 
@@ -96,7 +99,7 @@ int process_wait(tid_t child_tid) {
 
   if (a == NULL)
     return -1;
-
+  a->has_been_waited = true;
   sema_down(&a->sema);
   return a->exit_status;
 }
