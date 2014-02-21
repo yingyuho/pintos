@@ -88,6 +88,9 @@ static bool check_filename(char *str) {
 // than that it's positive and not equal to any other fd open by the file...
 static int next_fd = 10;
 
+// TODO: All filesys functions should be in critical sections (could use
+// some sort of global lock for example)
+
 static void syscall_handler(struct intr_frame *f) {
   // Take a look at the system call number; this is the first
   // thing on the caller's stack. While we're here, might as
@@ -100,7 +103,7 @@ static void syscall_handler(struct intr_frame *f) {
     thread_exit();
 
   get_user_arg(args, f->esp, 0);
-  
+  struct thread *cur = thread_current();
 
   // printf("%d %d %d %d\n", num, arg1, arg2, arg3);
   // Technically these are an enum, but C implements enums as ints...
@@ -149,8 +152,6 @@ static void syscall_handler(struct intr_frame *f) {
 	(get_user((uint8_t *)args[1] + strlen((char *)args[1]) - 1) == -1)) {
       thread_exit();
     }
-
-    struct thread *cur = thread_current();
 
     if (cur->nfiles == 128) {
       return;
@@ -243,6 +244,53 @@ static void syscall_handler(struct intr_frame *f) {
   case SYS_TELL:
     break;
   case SYS_CLOSE:
+    // Close doesn't actually return anything. Retrieve the fd, then
+    // iterate through the table of files and remove the appropriate entry
+    // if found.
+    get_user_arg(args, f->esp, 1);
+    int i;
+    for (i = 0; i < cur->nfiles && i < 64; ++i) {
+      if (cur->files[0][i].fd == args[1]) {
+	// Close this file
+	file_close(cur->files[0][i].f);
+	// Move the last entry in the table here
+	cur->nfiles--;
+	if (cur->nfiles < 64) {
+	  cur->files[0][i].fd = cur->files[0][cur->nfiles].fd;
+	  cur->files[0][i].f = cur->files[0][cur->nfiles].f;
+	  if (cur->nfiles == 0) {
+	    // deallocate files[0]
+	    palloc_free_page(cur->files[0]);
+	  }
+	}
+	else {
+	  cur->files[0][i].fd = cur->files[1][cur->nfiles-64].fd;
+	  cur->files[0][i].f = cur->files[1][cur->nfiles-64].f;
+	  if (cur->nfiles == 64) {
+	    // deallocate files[1]
+	    palloc_free_page(cur->files[1]);
+	  }
+	}
+	return;
+      }
+    }
+
+    for (i = 0; i < cur->nfiles - 64; ++i) {
+      if (cur->files[1][i].fd == args[1]) {
+	file_close(cur->files[1][i].f);
+	// Move the last entry in the table here
+	cur->nfiles--;
+	if (cur->nfiles == 64) {
+	  palloc_free_page(cur->files[1]);
+	}
+	else {
+	  cur->files[1][i].fd = cur->files[1][cur->nfiles-64].fd;
+	  cur->files[1][i].f = cur->files[1][cur->nfiles-64].f;
+	}
+	return;
+      }
+    }
+
     break;
   default:
     // I mean, yeah, there are other ways to implement this
