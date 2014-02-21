@@ -257,7 +257,8 @@ bool load(const char *file_name, void (**eip) (void), void **esp) {
     /* Open executable file. */
     lock_acquire(&fs_lock);
     file = filesys_open(exec_name);
-    file_deny_write(file);
+    if (file)
+        file_deny_write(file);
     lock_release(&fs_lock);
     if (file == NULL) {
         printf("load: %s: open failed\n", exec_name);
