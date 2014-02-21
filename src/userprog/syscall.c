@@ -19,6 +19,7 @@ struct lock fs_lock;
 
 static void syscall_handler(struct intr_frame *);
 
+// Copied from file.c
 struct file {
     struct inode *inode;        /*!< File's inode. */
     off_t pos;                  /*!< Current position. */
