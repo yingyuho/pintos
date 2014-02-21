@@ -179,7 +179,7 @@ static void syscall_handler(struct intr_frame *f) {
     //strlcpy(buf, (const char*)args[1], len);
     tid_t tid = process_execute((const char*)args[1]);
     f->eax = wait_load(tid);
-    if (!f->eax)
+    if (f->eax == -1)
       process_wait(tid);
         
     //free(buf);
