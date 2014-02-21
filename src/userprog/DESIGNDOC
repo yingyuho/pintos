@@ -122,6 +122,7 @@ the OS.
 struct thread_ashes {
     tid_t tid;
     bool has_been_waited;
+    bool load_success;
     int32_t exit_status;
     struct semaphore sema;
     struct thread *thread;
@@ -158,9 +159,10 @@ to overwrite the default value -1.
 >> loading.  How does your code ensure this?  How is the load
 >> success/failure status passed back to the thread that calls "exec"?
 
-struct thread has two new fields, semaphore load_done and 
-bool load_success. load_success is set when the new executable is 
-loaded or fails to be loaded. Then sema_up() is called on load_done.
+struct thread has a new field, semaphore load_done and 
+struct thread_ashes has bool load_success. 
+load_success is set when the new executable is loaded or fails to be 
+loaded. Then sema_up() is called on load_done.
 
 exec() calls sema_down() on load_done and then get load_success.
 If load_success == true, it returns the tid immediately; otherwise
