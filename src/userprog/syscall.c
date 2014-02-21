@@ -95,7 +95,7 @@ static int wait_load(tid_t tid) {
     return -1;
 
   sema_down(&a->thread->load_done);
-  return a->thread->load_success ? tid : -1;
+  return a->load_success ? tid : -1;
 }
 
 static void check_write_array(uint8_t *ptr, int len) {

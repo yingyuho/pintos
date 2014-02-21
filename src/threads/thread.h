@@ -116,7 +116,7 @@ struct thread {
     struct thread_ashes *ashes;
     struct list children; /* List of ashes */
     struct semaphore load_done;
-    bool load_success;
+    //bool load_success;
 
     struct list *locks; /* Currently held locks */
     struct lock *bllock; /* Lock currently blocked on, if any */
@@ -200,6 +200,7 @@ struct file_node {
 struct thread_ashes {
     tid_t tid;
     bool has_been_waited;
+    bool load_success;
     int32_t exit_status;
     struct semaphore sema;
     struct thread *thread;

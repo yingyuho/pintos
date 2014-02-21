@@ -309,8 +309,10 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
 //printf("a=%lu\n", a);
     a->tid = tid;
     a->has_been_waited = false;
+    a->load_success = false;
     a->exit_status = -1;
     a->thread = t;
+
     sema_init(&a->sema, 0);
 //printf("c=%lu\n", &thread_current()->children);
     list_init(&t->children);
