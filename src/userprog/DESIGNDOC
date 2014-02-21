@@ -36,16 +36,21 @@ Ying-Yu Ho <yingyu@caltech.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+None
+
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe how you implemented argument parsing.  How do
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
 
-The string is tokenized; the tokens are pushed onto the stack in reverse
-order (i.e. argv[0] is pushed first). We then iterate through the tokens 
-in reverse (i.e. argv[argc-1] first) and push the elements of argv onto the
-stack. Overflow is avoided by only parsing up to PGSIZE/2 bytes.
+The whole cmdline is pushed to the stack. A loop counts the number
+of arguments in order to reserve spaces for argv[0], ..., argv[argc].
+Then another loop calls strtok_r() to tokenize (replaces ' ' by '\0') 
+the in-stack copy of cmdline while filling up argv[i]. Finally, argv,
+argc, and 0 are pushed to the stack.
+
+Overflow is avoided by only parsing up to PGSIZE/2 bytes.
 
 ---- RATIONALE ----
 
@@ -112,6 +117,28 @@ the OS.
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
 
+struct thread_ashes {
+    tid_t tid;
+    bool has_been_waited;
+    int32_t exit_status;
+    struct semaphore sema;
+    struct thread *thread;
+    struct list_elem elem;
+};
+
+Each thread keeps a list of struct thread_ashes, each of which stores
+minimal information of a child thread. 
+
+thread_ashes.sema is intialized to 0, thread_ashes.exit_status to -1. 
+
+When a child thread terminates, it calls sema_up() on thread_ashes.sema
+
+When a parent thread calls wait(), it calls sema_up() on thread_ashes.sema
+and then retrieves thread_ashes.exit_status.
+
+When exit() is called, the status is passed to thread_ashes.exit_status
+to overwrite the default value -1.
+
 >> B6: Any access to user program memory at a user-specified address
 >> can fail due to a bad pointer value.  Such accesses must cause the
 >> process to be terminated.  System calls are fraught with such
@@ -133,12 +160,27 @@ the OS.
 >> loading.  How does your code ensure this?  How is the load
 >> success/failure status passed back to the thread that calls "exec"?
 
+struct thread has two new fields, semaphore load_done and 
+bool load_success. load_success is set when the new executable is 
+loaded or fails to be loaded. Then sema_up() is called on load_done.
+
+exec() calls sema_down() on load_done and then get load_success.
+If load_success == true, it returns the tid immediately; otherwise
+it calls process_wait(tid) to wait for the death of failed process
+and then returns -1;
+
 >> B8: Consider parent process P with child process C.  How do you
 >> ensure proper synchronization and avoid race conditions when P
 >> calls wait(C) before C exits?  After C exits?  How do you ensure
 >> that all resources are freed in each case?  How about when P
 >> terminates without waiting, before C exits?  After C exits?  Are
 >> there any special cases?
+
+A list of struct thread_ashes is managed by the parent thread 
+and it is not freed right after the death of child thread. 
+Synchronization is explained in B5. struct thread_ashes is freed when 
+the parent thread terminates or process_wait() is called on its tid,
+i.e., when we are sure that process_wait(tid) is no longer meaningful.
 
 ---- RATIONALE ----
 
@@ -150,6 +192,8 @@ the OS.
 
 >> B11: The default tid_t to pid_t mapping is the identity mapping.
 >> If you changed it, what advantages are there to your approach?
+
+We kept the identity mapping to finish this assignment sooner.
 
                            SURVEY QUESTIONS
                            ================
