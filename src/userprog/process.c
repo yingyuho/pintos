@@ -238,7 +238,7 @@ bool load(const char *file_name, void (**eip) (void), void **esp) {
        sort of silly; I think the actual standards allow all sorts of
        nonsense in file names, like EOF and newlines). */
     char *saveptr;
-    char *buf = (char *) palloc_get_page(PAL_ZERO);
+    char *buf = (char *) palloc_get_page(0);
     char *exec_name;
     if (buf == NULL) {
       // Well, that's awkward

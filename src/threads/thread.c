@@ -118,18 +118,10 @@ void thread_init(void) {
     initial_thread->tid = allocate_tid();
     initial_thread->exit_status = -1;
 
+#ifdef USERPROG
     /* Init ashes */
-#if 0
-    a = initial_thread->ashes = &initial_thread_ashes;
-    a->tid = initial_thread->tid;
-    a->exit_status = -1;
-    a->thread = initial_thread;
-    sema_init(&a->sema, 0);
-#endif
     list_init(&initial_thread->children);
-
-    /* Initialize MLFQS variable(s) */
-    //load_avg = fp_from_int(0);
+#endif
 }
 
 /*! Starts preemptive thread scheduling by enabling interrupts.
@@ -277,7 +269,6 @@ void thread_print_stats(void) {
 tid_t thread_create(const char *name, int priority, thread_func *function,
                     void *aux) {
     struct thread *t;
-    struct thread_ashes *a;
     struct kernel_thread_frame *kf;
     struct switch_entry_frame *ef;
     struct switch_threads_frame *sf;
@@ -304,6 +295,8 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
 
     t->exit_status = -1;
 
+#ifdef USERPROG
+    struct thread_ashes *a;
     /* Init ashes */
     a = t->ashes = malloc(sizeof(struct thread_ashes));
 //printf("a=%lu\n", a);
@@ -319,6 +312,7 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
     list_push_back(&thread_current()->children, &a->elem);
 
     sema_init(&t->load_done, 0);
+#endif
 
     /* Stack frame for kernel_thread(). */
     kf = alloc_frame(t, sizeof *kf);
@@ -428,7 +422,6 @@ extern struct lock fs_lock;
     returns to the caller. */
 void thread_exit(void) {
     struct list_elem *e;
-    struct thread_ashes *a;
     struct thread *cur = thread_current();
     int i;
     ASSERT(!intr_context());
@@ -453,11 +446,11 @@ void thread_exit(void) {
 
     file_close(cur->exec);
     process_exit();
-#endif
 
     /* Up ashes' semaphore */
     if (cur->ashes)
         sema_up(&cur->ashes->sema);
+#endif
 
     /* Remove thread from all threads list, set our status to dying,
        and schedule another process.  That process will destroy us
@@ -682,8 +675,11 @@ static void init_thread(struct thread *t, const char *name, int priority) {
     t->status = THREAD_BLOCKED;
 
     strlcpy(t->name, name, sizeof t->name);
+
+#ifdef USERPROG
     if (strchr(t->name, ' ') != NULL)
         *strchr(t->name, ' ') = '\0';
+#endif
 
     t->stack = (uint8_t *) t + PGSIZE;
     t->priority = priority;
@@ -756,15 +752,19 @@ void thread_schedule_tail(struct thread *prev) {
         ASSERT(prev != cur);
 	if (!thread_mlfqs)
 	  free(prev->locks);
-#if 0
-    if (!list_empty(&prev->children) && 
-        prev != initial_thread)
+
+#ifdef USERPROG
+    /* Free data of children (thread_ashes) */
+    if (prev != initial_thread)
     {
-        for (e = list_front(&prev->children); 
-             e != list_tail(&prev->children); 
-             e = list_next(e))
+        while (!list_empty(&prev->children))
         {
-            printf("parent %s\n", prev->name);
+            struct list_elem *e = list_pop_front(&prev->children);
+            // struct thread_ashes *a;
+            // a = list_entry(e, struct thread_ashes, elem);
+            // printf("parent %s\n", prev->name);
+            // printf("child  %d\n", a->exit_status);
+            // free(a);
             free(list_entry(e, struct thread_ashes, elem));
         }
     }

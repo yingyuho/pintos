@@ -14,7 +14,10 @@
 #include "filesys/file.h"
 
 struct thread;
+
+#ifdef USERPROG
 struct thread_ashes;
+#endif
 
 /*! States in a thread's life cycle. */
 enum thread_status {
@@ -113,11 +116,6 @@ struct thread {
     int recent_cpu; /* Amount of CPU time used recently */
     struct list_elem allelem;           /*!< List element for all threads list. */
 
-    struct thread_ashes *ashes;
-    struct list children; /* List of ashes */
-    struct semaphore load_done;
-    //bool load_success;
-
     struct list *locks; /* Currently held locks */
     struct lock *bllock; /* Lock currently blocked on, if any */
     struct semaphore *blsema; /* Ditto, but semaphore. The reason we still need
@@ -134,12 +132,18 @@ struct thread {
     /**@{*/
     uint32_t *pagedir;                  /*!< Page directory. */
     /**@{*/
-  struct file_node *files[2]; // lists of open files
-  // The reason for having two of them is so we can avoid allocating pages
-  // until actually necessary
-  int nfiles; // number of open files
 
-  struct file *exec; // executable
+    struct file_node *files[2]; // lists of open files
+    // The reason for having two of them is so we can avoid allocating pages
+    // until actually necessary
+    int nfiles; // number of open files
+
+    struct file *exec; // executable
+
+    struct thread_ashes *ashes;
+    struct list children; /* List of ashes */
+    struct semaphore load_done;
+    //bool load_success;
 #endif
 
     /*! Owned by thread.c. */
@@ -195,6 +199,7 @@ struct file_node {
   struct file *f; //file
 };
 
+#ifdef USERPROG
 /* thread_ashes */
 
 struct thread_ashes {
@@ -206,6 +211,7 @@ struct thread_ashes {
     struct thread *thread;
     struct list_elem elem;
 };
+#endif
 
 #endif /* threads/thread.h */
 
