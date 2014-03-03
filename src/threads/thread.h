@@ -42,6 +42,8 @@ typedef int tid_t;
 #define NICE_DEFAULT 0                  /*!< Default niceness. */
 #define NICE_MAX 20                     /*!< Highest niceness. */
 
+#define T_NAME_MAX 16
+
 /*! A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -108,7 +110,7 @@ struct thread {
     tid_t tid;                          /*!< Thread identifier. */
     enum thread_status status;          /*!< Thread state. */
     int32_t exit_status;
-    char name[16];                      /*!< Name (for debugging purposes). */
+    char name[T_NAME_MAX];                      /*!< Name (for debugging purposes). */
     uint8_t *stack;                     /*!< Saved stack pointer. */
     int priority;                       /*!< Priority. */
     int nice;                       /*!< Niceness. */

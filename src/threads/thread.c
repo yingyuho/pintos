@@ -421,7 +421,6 @@ extern struct lock fs_lock;
 /*! Deschedules the current thread and destroys it.  Never
     returns to the caller. */
 void thread_exit(void) {
-    struct list_elem *e;
     struct thread *cur = thread_current();
     int i;
     ASSERT(!intr_context());
@@ -676,11 +675,6 @@ static void init_thread(struct thread *t, const char *name, int priority) {
 
     strlcpy(t->name, name, sizeof t->name);
 
-#ifdef USERPROG
-    if (strchr(t->name, ' ') != NULL)
-        *strchr(t->name, ' ') = '\0';
-#endif
-
     t->stack = (uint8_t *) t + PGSIZE;
     t->priority = priority;
     t->cur_pri = priority;
@@ -728,7 +722,6 @@ static struct thread * next_thread_to_run(void) {
    After this function and its caller returns, the thread switch is complete. */
 void thread_schedule_tail(struct thread *prev) {
     struct thread *cur = running_thread();
-    struct list_elem *e;
   
     ASSERT(intr_get_level() == INTR_OFF);
 

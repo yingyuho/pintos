@@ -18,6 +18,10 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+#ifdef VM
+#include "vm/frame.h"
+#endif
+
 static thread_func start_process NO_RETURN;
 static bool load(const char *cmdline, void (**eip)(void), void **esp);
 
@@ -27,17 +31,27 @@ static bool load(const char *cmdline, void (**eip)(void), void **esp);
     cannot be created. */
 tid_t process_execute(const char *file_name) {
     char *fn_copy;
+    char name[T_NAME_MAX];
     tid_t tid;
 
     /* Make a copy of FILE_NAME.
        Otherwise there's a race between the caller and load(). */
+#ifdef VM
+    fn_copy = frame_get_page(0);
+#else
     fn_copy = palloc_get_page(0);
+#endif
     if (fn_copy == NULL)
         return TID_ERROR;
     strlcpy(fn_copy, file_name, PGSIZE);
 
+    /* Make sure only argv[0] become thread->name */
+    strlcpy(name, file_name, sizeof name);
+    if (strchr(name, ' ') != NULL)
+        *strchr(name, ' ') = '\0';
+
     /* Create a new thread to execute FILE_NAME. */
-    tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+    tid = thread_create(name, PRI_DEFAULT, start_process, fn_copy);
     if (tid == TID_ERROR)
         palloc_free_page(fn_copy); 
     return tid;
@@ -238,7 +252,11 @@ bool load(const char *file_name, void (**eip) (void), void **esp) {
        sort of silly; I think the actual standards allow all sorts of
        nonsense in file names, like EOF and newlines). */
     char *saveptr;
+#ifdef VM
+    char *buf = (char *) frame_get_page(0);
+#else
     char *buf = (char *) palloc_get_page(0);
+#endif
     char *exec_name;
     if (buf == NULL) {
       // Well, that's awkward
@@ -431,20 +449,32 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
         /* Get a page of memory. */
+#ifdef VM
+        uint8_t *kpage = frame_get_page(PAL_USER);
+#else
         uint8_t *kpage = palloc_get_page(PAL_USER);
+#endif
         if (kpage == NULL)
             return false;
 
         /* Load this page. */
         if (file_read(file, kpage, page_read_bytes) != (int) page_read_bytes) {
+#ifdef VM
+            frame_free_page(kpage);
+#else
             palloc_free_page(kpage);
+#endif
             return false;
         }
         memset(kpage + page_read_bytes, 0, page_zero_bytes);
 
         /* Add the page to the process's address space. */
         if (!install_page(upage, kpage, writable)) {
+#ifdef VM
+            frame_free_page(kpage);
+#else
             palloc_free_page(kpage);
+#endif
             return false; 
         }
 
@@ -468,7 +498,12 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
     char *stack, *tok;
     uint32_t argc = 0, i;
 
+#ifdef VM
+    kpage = frame_get_page(PAL_USER | PAL_ZERO);
+#else
     kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+#endif
+
     if (kpage != NULL) {
         success = install_page(((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
         if (success) {
@@ -525,8 +560,13 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
 
           *esp = (stack - (char *)kpage - PGSIZE + PHYS_BASE);
         }
-        else
+        else {
+#ifdef VM
+            frame_free_page(kpage);
+#else
             palloc_free_page(kpage);
+#endif
+        }
     }
     return success;
 }
