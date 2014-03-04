@@ -17,8 +17,8 @@ struct frame_entry
 
     /* Info for circular list */
     /* I don't use list.h because it would be hard to realloc entries */
-    int32_t prev;
-    int32_t next;
+    size_t prev;
+    size_t next;
 
     uint16_t age;
     uint16_t flags;

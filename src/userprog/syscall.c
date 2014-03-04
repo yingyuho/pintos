@@ -215,8 +215,8 @@ static void syscall_handler(struct intr_frame *f) {
 
     // Check whether the provided filename lives in userland
     if ((args[1] == NULL) || (args[1] >= PHYS_BASE) ||
-	(get_user((uint8_t *)args[1]) == -1) ||
-	(get_user((uint8_t *)args[1] + strlen((char *)args[1]) - 1) == -1)) {
+        (get_user((uint8_t *)args[1]) == -1) ||
+        (get_user((uint8_t *)args[1] + strlen((char *)args[1]) - 1) == -1)) {
       thread_exit();
     }
 
@@ -238,20 +238,20 @@ static void syscall_handler(struct intr_frame *f) {
       cur->files[0] = (struct file_node *) palloc_get_page(0);
       // If this allocation failed, close the file and return -1
       if (cur->files[0] == NULL) {
-	lock_acquire(&fs_lock);
-	file_close(ff);
-	lock_release(&fs_lock);
-	return;
+        lock_acquire(&fs_lock);
+        file_close(ff);
+        lock_release(&fs_lock);
+        return;
       }
     }
     if (cur->nfiles == 64) {
       cur->files[1] = (struct file_node *) palloc_get_page(0);
       // If this allocation failed, close the file and return -1
       if (cur->files[1] == NULL) {
-	lock_acquire(&fs_lock);
-	file_close(ff);
-	lock_release(&fs_lock);
-	return;
+        lock_acquire(&fs_lock);
+        file_close(ff);
+        lock_release(&fs_lock);
+        return;
       }
     }
     
@@ -282,19 +282,19 @@ static void syscall_handler(struct intr_frame *f) {
     // Find the appropriate file
     for (i = 0; i < cur->nfiles && i < 64; ++i) {
       if (cur->files[0][i].fd == args[1]) {
-	lock_acquire(&fs_lock);
+        lock_acquire(&fs_lock);
         f->eax = file_length(cur->files[0][i].f);
-	lock_release(&fs_lock);
-	return;
+        lock_release(&fs_lock);
+        return;
       }
     }
 
     for (i = 0; i < cur->nfiles - 64; ++i) {
       if (cur->files[1][i].fd == args[1]) {
-	lock_acquire(&fs_lock);
+        lock_acquire(&fs_lock);
         f->eax = file_length(cur->files[1][i].f);
-	lock_release(&fs_lock);
-	return;
+        lock_release(&fs_lock);
+        return;
       }
     }
     break;
@@ -311,8 +311,8 @@ static void syscall_handler(struct intr_frame *f) {
 
     if (args[1] == 0) { // stdin
       for(i = 0; i < args[3]; ++i) {
-	((uint8_t *)args[2])[i] = input_getc();
-	// how would you detect EOF though? hmm.
+        ((uint8_t *)args[2])[i] = input_getc();
+        // how would you detect EOF though? hmm.
       }
       f->eax = i;
       return;
@@ -320,21 +320,21 @@ static void syscall_handler(struct intr_frame *f) {
     else {
       // Find the file
       for (i = 0; i < cur->nfiles && i < 64; ++i) {
-	if (cur->files[0][i].fd == args[1]) {
-	  lock_acquire(&fs_lock);
-	  f->eax = file_read(cur->files[0][i].f, (void *)args[2], args[3]);
-	  lock_release(&fs_lock);
-	  return;
-	}
+        if (cur->files[0][i].fd == args[1]) {
+          lock_acquire(&fs_lock);
+          f->eax = file_read(cur->files[0][i].f, (void *)args[2], args[3]);
+          lock_release(&fs_lock);
+          return;
+        }
       }
       
       for (i = 0; i < cur->nfiles - 64; ++i) {
-	if (cur->files[1][i].fd == args[1]) {
-	  lock_acquire(&fs_lock);
-	  f->eax = file_read(cur->files[1][i].f, (void *)args[2], args[3]);
-	  lock_release(&fs_lock);
-	  return;
-	}
+        if (cur->files[1][i].fd == args[1]) {
+          lock_acquire(&fs_lock);
+          f->eax = file_read(cur->files[1][i].f, (void *)args[2], args[3]);
+          lock_release(&fs_lock);
+          return;
+        }
       }
     }
     break;
@@ -354,19 +354,19 @@ static void syscall_handler(struct intr_frame *f) {
       f->eax = args[3];
 
       while ((uint32_t)args[3] > 256) {
-	// Check whether the first and last bytes are valid
-	if (get_user((uint8_t *)args[2]) == -1)
-	  thread_exit();
-	if (get_user((uint8_t *)args[2] + 255) == -1)
-	  thread_exit();
-	putbuf((char *)args[2], 256);
-	((uint32_t *)args)[3] -= 256;
-	((char **)args)[2] += 256;
+        // Check whether the first and last bytes are valid
+        if (get_user((uint8_t *)args[2]) == -1)
+          thread_exit();
+        if (get_user((uint8_t *)args[2] + 255) == -1)
+          thread_exit();
+        putbuf((char *)args[2], 256);
+        ((uint32_t *)args)[3] -= 256;
+        ((char **)args)[2] += 256;
       }
       if (get_user((uint8_t *)args[2]) == -1)
-	thread_exit();
+        thread_exit();
       if (get_user((uint8_t *)args[2] + (uint32_t)args[3] - 1) == -1)
-	thread_exit();
+        thread_exit();
       putbuf((char *)args[2], (uint32_t)args[3]);
     }
     else {
@@ -375,21 +375,21 @@ static void syscall_handler(struct intr_frame *f) {
       
       // Find the file to write to
       for (i = 0; i < cur->nfiles && i < 64; ++i) {
-	if (cur->files[0][i].fd == args[1]) {
-	  // Write to this file
-	  lock_acquire(&fs_lock);
-	  f->eax = file_write(cur->files[0][i].f, args[2], args[3]);
-	  lock_release(&fs_lock);
-	  return;
-	}
+        if (cur->files[0][i].fd == args[1]) {
+          // Write to this file
+          lock_acquire(&fs_lock);
+          f->eax = file_write(cur->files[0][i].f, args[2], args[3]);
+          lock_release(&fs_lock);
+          return;
+        }
       }
       for (i = 0; i < cur->nfiles - 64; ++i) {
-	if (cur->files[1][i].fd == args[1]) {
-	  lock_acquire(&fs_lock);
-	  f->eax = file_write(cur->files[1][i].f, args[2], args[3]);
-	  lock_release(&fs_lock);
-	  return;
-	}
+        if (cur->files[1][i].fd == args[1]) {
+          lock_acquire(&fs_lock);
+          f->eax = file_write(cur->files[1][i].f, args[2], args[3]);
+          lock_release(&fs_lock);
+          return;
+        }
       }
       // Invalid fd?
       f->eax = 0;
@@ -403,19 +403,19 @@ static void syscall_handler(struct intr_frame *f) {
     // Find the appropriate file
         for (i = 0; i < cur->nfiles && i < 64; ++i) {
       if (cur->files[0][i].fd == args[1]) {
-	lock_acquire(&fs_lock);
+        lock_acquire(&fs_lock);
         file_seek(cur->files[0][i].f, args[2]);
-	lock_release(&fs_lock);
-	return;
+        lock_release(&fs_lock);
+        return;
       }
     }
 
     for (i = 0; i < cur->nfiles - 64; ++i) {
       if (cur->files[1][i].fd == args[1]) {
-	lock_acquire(&fs_lock);
+        lock_acquire(&fs_lock);
         file_seek(cur->files[1][i].f, args[2]);
-	lock_release(&fs_lock);
-	return;
+        lock_release(&fs_lock);
+        return;
       }
     }
     break;
@@ -424,19 +424,19 @@ static void syscall_handler(struct intr_frame *f) {
     // Find the appropriate file
     for (i = 0; i < cur->nfiles && i < 64; ++i) {
       if (cur->files[0][i].fd == args[1]) {
-	lock_acquire(&fs_lock);
+        lock_acquire(&fs_lock);
         f->eax = file_tell(cur->files[0][i].f);
-	lock_release(&fs_lock);
-	return;
+        lock_release(&fs_lock);
+        return;
       }
     }
 
     for (i = 0; i < cur->nfiles - 64; ++i) {
       if (cur->files[1][i].fd == args[1]) {
-	lock_acquire(&fs_lock);
+        lock_acquire(&fs_lock);
         f->eax = file_tell(cur->files[1][i].f);
-	lock_release(&fs_lock);
-	return;
+        lock_release(&fs_lock);
+        return;
       }
     }
     // Kill the thread :)
@@ -449,50 +449,50 @@ static void syscall_handler(struct intr_frame *f) {
     get_user_arg(args, f->esp, 1);
     for (i = 0; i < cur->nfiles && i < 64; ++i) {
       if (cur->files[0][i].fd == args[1]) {
-	// Close this file
-	lock_acquire(&fs_lock);
-	file_close(cur->files[0][i].f);
-	lock_release(&fs_lock);
-	// Move the last entry in the table here
-	cur->nfiles--;
-	if (cur->nfiles < 64) {
-	  cur->files[0][i].fd = cur->files[0][cur->nfiles].fd;
-	  cur->files[0][i].f = cur->files[0][cur->nfiles].f;
-	  if (cur->nfiles == 0) {
-	    // deallocate files[0]
-	    palloc_free_page(cur->files[0]);
-	    cur->files[0] = NULL;
-	  }
-	}
-	else {
-	  cur->files[0][i].fd = cur->files[1][cur->nfiles-64].fd;
-	  cur->files[0][i].f = cur->files[1][cur->nfiles-64].f;
-	  if (cur->nfiles == 64) {
-	    // deallocate files[1]
-	    palloc_free_page(cur->files[1]);
-	    cur->files[1] = NULL;
-	  }
-	}
-	return;
+        // Close this file
+        lock_acquire(&fs_lock);
+        file_close(cur->files[0][i].f);
+        lock_release(&fs_lock);
+        // Move the last entry in the table here
+        cur->nfiles--;
+        if (cur->nfiles < 64) {
+          cur->files[0][i].fd = cur->files[0][cur->nfiles].fd;
+          cur->files[0][i].f = cur->files[0][cur->nfiles].f;
+          if (cur->nfiles == 0) {
+            // deallocate files[0]
+            palloc_free_page(cur->files[0]);
+            cur->files[0] = NULL;
+          }
+        }
+        else {
+          cur->files[0][i].fd = cur->files[1][cur->nfiles-64].fd;
+          cur->files[0][i].f = cur->files[1][cur->nfiles-64].f;
+          if (cur->nfiles == 64) {
+            // deallocate files[1]
+            palloc_free_page(cur->files[1]);
+            cur->files[1] = NULL;
+          }
+        }
+        return;
       }
     }
 
     for (i = 0; i < cur->nfiles - 64; ++i) {
       if (cur->files[1][i].fd == args[1]) {
-	lock_acquire(&fs_lock);
-	file_close(cur->files[1][i].f);
-	lock_release(&fs_lock);
-	// Move the last entry in the table here
-	cur->nfiles--;
-	if (cur->nfiles == 64) {
-	  palloc_free_page(cur->files[1]);
-	  cur->files[1] = NULL;
-	}
-	else {
-	  cur->files[1][i].fd = cur->files[1][cur->nfiles-64].fd;
-	  cur->files[1][i].f = cur->files[1][cur->nfiles-64].f;
-	}
-	return;
+        lock_acquire(&fs_lock);
+        file_close(cur->files[1][i].f);
+        lock_release(&fs_lock);
+        // Move the last entry in the table here
+        cur->nfiles--;
+        if (cur->nfiles == 64) {
+          palloc_free_page(cur->files[1]);
+          cur->files[1] = NULL;
+        }
+        else {
+          cur->files[1][i].fd = cur->files[1][cur->nfiles-64].fd;
+          cur->files[1][i].f = cur->files[1][cur->nfiles-64].f;
+        }
+        return;
       }
     }
 

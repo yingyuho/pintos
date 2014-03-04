@@ -1,6 +1,7 @@
 #include "vm/frame.h"
 #include <debug.h>
 #include <list.h>
+#include <string.h>
 #include "threads/malloc.h"
 #include "threads/synch.h"
 
@@ -77,8 +78,10 @@ void *frame_get_page(enum palloc_flags flags) {
   return page;
 }
 
-void frame_free_page(void *page) {
-  if (palloc_from_user(page)) {
+void frame_free_page(void *page)
+{
+  if (palloc_from_user(page))
+  {
     size_t i;
 
     palloc_free_page(page);
@@ -86,6 +89,7 @@ void frame_free_page(void *page) {
     lock_acquire(&table_lock);
 
     /* Locate the page in the frame table */
+    /* TODO: Use hash table? */
     for (i = 0; i < table_size; i++) {
       if (frame_table[i].page == page)
         break;
@@ -107,18 +111,31 @@ void frame_free_page(void *page) {
       *next(*prev(i)) = *next(i);
       *prev(*next(i)) = *prev(i);
 
-      /* Move frame_table[table_size] to frame_table[i] */
-      frame_table[i] = frame_table[table_size];
+      if (i != table_size) {
+        /* Move frame_table[table_size] to frame_table[i] */
+        frame_table[i] = frame_table[table_size];
 
-      /* and repair the circular list */
-      *next(*prev(i)) = i;
-      *prev(*next(i)) = i;
+        /* Repair the circular list */
+        *next(*prev(i)) = i;
+        *prev(*next(i)) = i;
+
+        /* Update frame_to_evict again if needed */
+        if (frame_to_evict == table_size)
+          frame_to_evict = i;
+      }
+
+      /* Fill 0xcc to frame_table[table_size] to make debugging easier */
+      memset(frame_table + table_size, 0xcc, sizeof(struct frame_entry));
     }
 
     lock_release(&table_lock);
-  } else if (palloc_from_kernel(page)) {
+  }
+  else if (palloc_from_kernel(page))
+  {
     palloc_free_page(page);
-  } else {
+  }
+  else
+  {
     NOT_REACHED();
   }
 }
