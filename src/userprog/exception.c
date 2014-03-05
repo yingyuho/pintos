@@ -144,9 +144,8 @@ static void page_fault(struct intr_frame *f) {
     /* To implement virtual memory, delete the rest of the function
        body, and replace it with code that brings in the page to
        which fault_addr refers. */
-
-    if (user && not_present) {
 #ifdef VM
+    if (not_present) {
       struct vm_area_struct *vma = mm_find(&thread_current()->mm, fault_addr);
       if (vma != NULL)
       {
@@ -179,11 +178,12 @@ static void page_fault(struct intr_frame *f) {
         // printf("load = %d\n", read_bytes);
         return;
       }
-      else
-        printf("Sad\n");
-#endif
+      // else
+      //   printf("Sad\n");
+
     }
-    else {
+#endif
+    if (!user) {
       // Store eax into eip, store -1 into eax
       f->eip = (void (*) (void)) f->eax;
       f->eax = -1;
