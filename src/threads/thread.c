@@ -23,12 +23,12 @@
     of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
 
-// from file.c
-struct file {
-    struct inode *inode;        /*!< File's inode. */
-    off_t pos;                  /*!< Current position. */
-    bool deny_write;            /*!< Has file_deny_write() been called? */
-};
+// // from file.c
+// struct file {
+//     struct inode *inode;        /*!< File's inode. */
+//     off_t pos;                  /*!< Current position. */
+//     bool deny_write;            /*!< Has file_deny_write() been called? */
+// };
 
 
 /*! List of processes in THREAD_READY state, that is, processes
@@ -167,7 +167,7 @@ void thread_tick(void) {
     if (t == idle_thread)
         idle_ticks++;
 #ifdef USERPROG
-    else if (t->pagedir != NULL)
+    else if (t->PAGEDIR != NULL)
         user_ticks++;
 #endif
     else
@@ -422,10 +422,10 @@ extern struct lock fs_lock;
     returns to the caller. */
 void thread_exit(void) {
     struct thread *cur = thread_current();
-    int i;
     ASSERT(!intr_context());
 
 #ifdef USERPROG
+    int i;
     // Clean up all open file descriptors, including its own
     for (i = 0; i < cur->nfiles && i < 64; ++i) {
       lock_acquire(&fs_lock);

@@ -19,7 +19,9 @@
 #include "threads/vaddr.h"
 
 #ifdef VM
+#include "threads/malloc.h"
 #include "vm/frame.h"
+#include "vm/page.h"
 #endif
 
 static thread_func start_process NO_RETURN;
@@ -129,7 +131,8 @@ void process_exit(void) {
 
     /* Destroy the current process's page directory and switch back
        to the kernel-only page directory. */
-    pd = cur->pagedir;
+    pd = cur->PAGEDIR;
+
     if (pd != NULL) {
         /* Correct ordering here is crucial.  We must set
            cur->pagedir to NULL before switching page directories,
@@ -138,7 +141,8 @@ void process_exit(void) {
            directory before destroying the process's page
            directory, or our active page directory will be one
            that's been freed (and cleared). */
-        cur->pagedir = NULL;
+        cur->PAGEDIR = NULL;
+
         pagedir_activate(NULL);
         pagedir_destroy(pd);
     }
@@ -150,7 +154,7 @@ void process_activate(void) {
     struct thread *t = thread_current();
 
     /* Activate thread's page tables. */
-    pagedir_activate(t->pagedir);
+    pagedir_activate(t->PAGEDIR);
 
     /* Set thread's kernel stack for use in processing interrupts. */
     tss_update();
@@ -239,9 +243,14 @@ bool load(const char *file_name, void (**eip) (void), void **esp) {
     bool success = false;
     int i;
 
+#ifdef VM
+    /* Initialize memory mapping */
+    mm_init(&t->mm);
+#endif
+
     /* Allocate and activate page directory. */
-    t->pagedir = pagedir_create();
-    if (t->pagedir == NULL) 
+    t->PAGEDIR = pagedir_create();
+    if (t->PAGEDIR == NULL) 
         goto done;
     process_activate();
 
@@ -341,6 +350,8 @@ bool load(const char *file_name, void (**eip) (void), void **esp) {
                     read_bytes = 0;
                     zero_bytes = ROUND_UP(page_offset + phdr.p_memsz, PGSIZE);
                 }
+                printf("file = %x, file_page = %x, mem_page = %x, read = %x, zero = %x\n",
+                  file, file_page, mem_page, read_bytes, zero_bytes);
                 if (!load_segment(file, file_page, (void *) mem_page,
                                   read_bytes, zero_bytes, writable))
                     goto done;
@@ -420,6 +431,46 @@ static bool validate_segment(const struct Elf32_Phdr *phdr, struct file *file) {
     return true;
 }
 
+#ifdef VM
+
+//static void vm_load_seg_open(struct vm_area_struct *area);
+//static void vm_load_seg_close(struct vm_area_struct *area);
+
+static int32_t vm_load_seg_absent(struct vm_area_struct *vma, 
+                                  struct vm_fault *vmf)
+{
+  uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
+  off_t offset = vma->vm_file_ofs + vmf->page_ofs;
+
+  size_t read_bytes = vma->vm_file_read_bytes - vmf->page_ofs;
+  read_bytes = (read_bytes < 0) ? 0 : read_bytes;
+  read_bytes = (read_bytes > PGSIZE) ? PGSIZE : read_bytes;
+
+  int actual_read_bytes = 0;
+
+  printf("read = %x, offset = %x, upage = %x\n", 
+    read_bytes,
+    vma->vm_file_ofs + vmf->page_ofs, 
+    (size_t) upage);
+
+  if (read_bytes)
+  {
+    file_seek(vma->vm_file, offset);
+    actual_read_bytes = file_read(vma->vm_file, vmf->kpage, read_bytes);
+  }
+
+  memset(vmf->kpage + actual_read_bytes, 0, PGSIZE - actual_read_bytes);
+
+  install_page(upage, vmf->kpage, vma->vm_flags & VM_WRITE);
+
+  return actual_read_bytes;
+}
+
+static struct vm_operations_struct vm_load_seg_ops = 
+  { .open = NULL, .close = NULL, .absent = vm_load_seg_absent };
+
+#endif /* VM */
+
 /*! Loads a segment starting at offset OFS in FILE at address UPAGE.  In total,
     READ_BYTES + ZERO_BYTES bytes of virtual memory are initialized, as follows:
 
@@ -440,6 +491,26 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
     ASSERT(pg_ofs(upage) == 0);
     ASSERT(ofs % PGSIZE == 0);
 
+#ifdef VM
+    struct mm_struct *mm = &thread_current()->mm;
+    struct vm_area_struct *vma = malloc(sizeof(struct vm_area_struct));
+    vma->vm_start = upage;
+    vma->vm_end = upage + read_bytes + zero_bytes;
+
+    printf("read = %lx, zero = %lx\n", read_bytes, zero_bytes);
+    printf("start = %lx, end = %lx\n", vma->vm_start, vma->vm_end);
+    printf("writable = %d\n", (VM_WRITE & -(int)writable));
+    printf("file ofs = %lx\n", ofs);
+
+    vma->vm_flags = VM_READ | VM_EXEC | VM_EXECUTABLE |
+                    (VM_WRITE & -(int)writable);
+    vma->vm_ops = &vm_load_seg_ops;
+    vma->vm_file = file;
+    vma->vm_file_ofs = ofs;
+    vma->vm_file_read_bytes = read_bytes;
+    vma->vm_file_zero_bytes = zero_bytes;
+    mm_insert_vm_area(mm, vma);
+#else /* no-VM */
     file_seek(file, ofs);
     while (read_bytes > 0 || zero_bytes > 0) {
         /* Calculate how to fill this page.
@@ -458,6 +529,11 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
             return false;
 
         /* Load this page. */
+#if 0
+        printf("pos = %x\n", file_tell(file));
+        printf("upage = %x\n", upage);
+        printf("kpage = %x\n", kpage);
+#endif
         if (file_read(file, kpage, page_read_bytes) != (int) page_read_bytes) {
 #ifdef VM
             frame_free_page(kpage);
@@ -479,10 +555,14 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
         }
 
         /* Advance. */
+        printf("pread = %x, pzero = %x\n", page_read_bytes, page_zero_bytes);
         read_bytes -= page_read_bytes;
         zero_bytes -= page_zero_bytes;
         upage += PGSIZE;
     }
+
+#endif /* VM */
+
     return true;
 }
 
@@ -585,7 +665,7 @@ static bool install_page(void *upage, void *kpage, bool writable) {
 
     /* Verify that there's not already a page at that virtual
        address, then map our page there. */
-    return (pagedir_get_page(t->pagedir, upage) == NULL &&
-            pagedir_set_page(t->pagedir, upage, kpage, writable));
+    return (pagedir_get_page(t->PAGEDIR, upage) == NULL &&
+            pagedir_set_page(t->PAGEDIR, upage, kpage, writable));
 }
 

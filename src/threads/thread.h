@@ -13,6 +13,10 @@
 
 #include "filesys/file.h"
 
+#ifdef VM
+#include "vm/page.h"
+#endif
+
 struct thread;
 
 #ifdef USERPROG
@@ -132,7 +136,13 @@ struct thread {
 #ifdef USERPROG
     /*! Owned by userprog/process.c. */
     /**@{*/
+#ifdef VM
+    struct mm_struct mm;
+    #define PAGEDIR mm.pagedir
+#else
     uint32_t *pagedir;                  /*!< Page directory. */
+    #define PAGEDIR pagedir
+#endif
     /**@{*/
 
     struct file_node *files[2]; // lists of open files
@@ -146,7 +156,7 @@ struct thread {
     struct list children; /* List of ashes */
     struct semaphore load_done;
     //bool load_success;
-#endif
+#endif /* USERPROG */
 
     /*! Owned by thread.c. */
     /**@{*/

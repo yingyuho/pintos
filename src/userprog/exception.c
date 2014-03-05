@@ -5,6 +5,11 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+#ifdef VM
+#include "vm/frame.h"
+#include "vm/page.h"
+#endif
+
 /*! Number of page faults processed. */
 static long long page_fault_cnt;
 
@@ -138,18 +143,53 @@ static void page_fault(struct intr_frame *f) {
        body, and replace it with code that brings in the page to
        which fault_addr refers. */
 
-    if (user) {
+    if (user && not_present) {
+      struct vm_area_struct *vma = mm_find(&thread_current()->mm, fault_addr);
+      if (vma != NULL)
+      {
+        uint8_t *upage = (uint8_t *) ((uint32_t) fault_addr & ~PGMASK);
+
+        struct vm_fault vmf =
+        { 
+          .page_ofs = (uint32_t) (upage - vma->vm_start),
+          .fault_addr = fault_addr, 
+          .kpage = frame_get_page(PAL_USER)
+        };
+
+        printf("Cool, start = %x, end = %x, addr = %x\n", 
+          (size_t) vma->vm_start, (size_t) vma->vm_end, (size_t) fault_addr);
+
+        int read_bytes = vma->vm_ops->absent(vma, &vmf);
+
+        if (read_bytes == -1)
+        {
+          frame_free_page(vmf.kpage);
+          PANIC("Cannot load executable");
+        }
+        // else
+        // {
+        //   uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
+        //   install_page(upage, vmf.kpage, vma->vm_flags & VM_WRITE);
+        // }
+
+        // printf("load = %d\n", read_bytes);
+        return;
+      }
+      else
+        printf("Sad\n");
+    }
+    else {
+      // Store eax into eip, store -1 into eax
+      f->eip = (void (*) (void)) f->eax;
+      f->eax = -1;
+      return;
+    }
+
     printf("Page fault at %p: %s error %s page in %s context.\n",
            fault_addr,
            not_present ? "not present" : "rights violation",
            write ? "writing" : "reading",
            user ? "user" : "kernel");
-      kill(f);
-    }
-    else {
-      // Store eax into eip, store -1 into eax
-      f->eip = f->eax;
-      f->eax = -1;
-    }
+    kill(f);
 }
 

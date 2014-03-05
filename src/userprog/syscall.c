@@ -4,8 +4,10 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/palloc.h"
 #include "userprog/process.h"
 #include "devices/shutdown.h"
+#include "devices/input.h"
 
 int process_wait(tid_t);
 void shutdown_power_off(void) NO_RETURN;
@@ -19,12 +21,12 @@ struct lock fs_lock;
 
 static void syscall_handler(struct intr_frame *);
 
-// Copied from file.c
-struct file {
-    struct inode *inode;        /*!< File's inode. */
-    off_t pos;                  /*!< Current position. */
-    bool deny_write;            /*!< Has file_deny_write() been called? */
-};
+// // Copied from file.c
+// struct file {
+//     struct inode *inode;        /*!< File's inode. */
+//     off_t pos;                  /*!< Current position. */
+//     bool deny_write;            /*!< Has file_deny_write() been called? */
+// };
 
 void syscall_init(void) {
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
@@ -117,16 +119,16 @@ static void check_array(uint8_t *ptr, int len) {
 
 // returns false if the filename is too long (>255 for now)
 static bool check_filename(char *str) {
-  if (str == NULL || str >= PHYS_BASE)
+  if (str == NULL || str >= (char *) PHYS_BASE)
     thread_exit();
   // There should be a \0 somewhere in the first 256 bytes; otherwise the
   // filename is way too long (or we've been passed an invalid
   // pointer)
-  int i;
+  uint32_t i;
   for (i = 0; i < 256; ++i) {
-    if (get_user(str+i) == 0)
+    if (get_user((uint8_t *)(str+i)) == 0)
       break;
-    else if (get_user(str+i) == -1)
+    else if (get_user((uint8_t *)(str+i)) == -1)
       thread_exit();
   }
   if (i == 256) {
@@ -149,7 +151,7 @@ static void syscall_handler(struct intr_frame *f) {
   
   // Sanity check: Stack pointer should not be below the code segment (how
   // would you even get there)
-  if (f->esp < 0x08048000)
+  if (f->esp < (void *)0x08048000)
     thread_exit();
 
   get_user_arg(args, f->esp, 0);
@@ -179,7 +181,7 @@ static void syscall_handler(struct intr_frame *f) {
     //strlcpy(buf, (const char*)args[1], len);
     tid_t tid = process_execute((const char*)args[1]);
     f->eax = wait_load(tid);
-    if (f->eax == -1)
+    if ((int32_t)f->eax == -1)
       process_wait(tid);
         
     //free(buf);
@@ -193,7 +195,7 @@ static void syscall_handler(struct intr_frame *f) {
     get_user_arg(args, f->esp, 2);
 
     // Check that the filename is valid
-    if(! check_filename(args[1])) {
+    if(!check_filename((char *)args[1])) {
       f->eax = 0;
       return;
     }
@@ -201,7 +203,7 @@ static void syscall_handler(struct intr_frame *f) {
     // Try to create the file. I don't really think I need to check the
     // initial size here...
     lock_acquire(&fs_lock);
-    f->eax = filesys_create(args[1], args[2]);
+    f->eax = filesys_create((char *) args[1], (off_t) args[2]);
     lock_release(&fs_lock);
     return;
     break;
@@ -214,7 +216,7 @@ static void syscall_handler(struct intr_frame *f) {
     f->eax = -1;
 
     // Check whether the provided filename lives in userland
-    if ((args[1] == NULL) || (args[1] >= PHYS_BASE) ||
+    if (((char *) args[1] == NULL) || ((char *) args[1] >= (char *) PHYS_BASE) ||
         (get_user((uint8_t *)args[1]) == -1) ||
         (get_user((uint8_t *)args[1] + strlen((char *)args[1]) - 1) == -1)) {
       thread_exit();
@@ -303,11 +305,11 @@ static void syscall_handler(struct intr_frame *f) {
     get_user_arg(args, f->esp, 2);
     get_user_arg(args, f->esp, 3);
 
-    if ((args[2] == 0) || (args[2] >= PHYS_BASE))
+    if (((void *)args[2] == NULL) || ((void *)args[2] >= PHYS_BASE))
       thread_exit();
 
     // Verify the buffer
-    check_write_array(args[2], args[3]);
+    check_write_array((void *) args[2], args[3]);
 
     if (args[1] == 0) { // stdin
       for(i = 0; i < args[3]; ++i) {
@@ -371,14 +373,14 @@ static void syscall_handler(struct intr_frame *f) {
     }
     else {
       // Check whether the buffer is valid
-      check_array(args[2], args[3]);
+      check_array((void *) args[2], args[3]);
       
       // Find the file to write to
       for (i = 0; i < cur->nfiles && i < 64; ++i) {
         if (cur->files[0][i].fd == args[1]) {
           // Write to this file
           lock_acquire(&fs_lock);
-          f->eax = file_write(cur->files[0][i].f, args[2], args[3]);
+          f->eax = file_write(cur->files[0][i].f, (void *)args[2], args[3]);
           lock_release(&fs_lock);
           return;
         }
@@ -386,7 +388,7 @@ static void syscall_handler(struct intr_frame *f) {
       for (i = 0; i < cur->nfiles - 64; ++i) {
         if (cur->files[1][i].fd == args[1]) {
           lock_acquire(&fs_lock);
-          f->eax = file_write(cur->files[1][i].f, args[2], args[3]);
+          f->eax = file_write(cur->files[1][i].f, (void *)args[2], args[3]);
           lock_release(&fs_lock);
           return;
         }
