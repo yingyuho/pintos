@@ -10,6 +10,8 @@
 #include "vm/page.h"
 #endif
 
+//#define EXCEPTION_C_DEBUG
+
 /*! Number of page faults processed. */
 static long long page_fault_cnt;
 
@@ -144,6 +146,7 @@ static void page_fault(struct intr_frame *f) {
        which fault_addr refers. */
 
     if (user && not_present) {
+#ifdef VM
       struct vm_area_struct *vma = mm_find(&thread_current()->mm, fault_addr);
       if (vma != NULL)
       {
@@ -155,9 +158,10 @@ static void page_fault(struct intr_frame *f) {
           .fault_addr = fault_addr, 
           .kpage = frame_get_page(PAL_USER)
         };
-
+#ifdef EXCEPTION_C_DEBUG
         printf("Cool, start = %x, end = %x, addr = %x\n", 
           (size_t) vma->vm_start, (size_t) vma->vm_end, (size_t) fault_addr);
+#endif
 
         int read_bytes = vma->vm_ops->absent(vma, &vmf);
 
@@ -177,6 +181,7 @@ static void page_fault(struct intr_frame *f) {
       }
       else
         printf("Sad\n");
+#endif
     }
     else {
       // Store eax into eip, store -1 into eax

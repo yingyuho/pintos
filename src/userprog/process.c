@@ -24,6 +24,8 @@
 #include "vm/page.h"
 #endif
 
+//#define PROCESS_C_DEBUG
+
 static thread_func start_process NO_RETURN;
 static bool load(const char *cmdline, void (**eip)(void), void **esp);
 
@@ -350,8 +352,10 @@ bool load(const char *file_name, void (**eip) (void), void **esp) {
                     read_bytes = 0;
                     zero_bytes = ROUND_UP(page_offset + phdr.p_memsz, PGSIZE);
                 }
+#ifdef PROCESS_C_DEBUG
                 printf("file = %x, file_page = %x, mem_page = %x, read = %x, zero = %x\n",
                   file, file_page, mem_page, read_bytes, zero_bytes);
+#endif
                 if (!load_segment(file, file_page, (void *) mem_page,
                                   read_bytes, zero_bytes, writable))
                     goto done;
@@ -442,16 +446,17 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
   uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
   off_t offset = vma->vm_file_ofs + vmf->page_ofs;
 
-  size_t read_bytes = vma->vm_file_read_bytes - vmf->page_ofs;
+  int read_bytes = vma->vm_file_read_bytes - vmf->page_ofs;
   read_bytes = (read_bytes < 0) ? 0 : read_bytes;
   read_bytes = (read_bytes > PGSIZE) ? PGSIZE : read_bytes;
 
   int actual_read_bytes = 0;
-
+#ifdef PROCESS_C_DEBUG
   printf("read = %x, offset = %x, upage = %x\n", 
     read_bytes,
     vma->vm_file_ofs + vmf->page_ofs, 
     (size_t) upage);
+#endif
 
   if (read_bytes)
   {
@@ -462,7 +467,9 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
   memset(vmf->kpage + actual_read_bytes, 0, PGSIZE - actual_read_bytes);
 
   install_page(upage, vmf->kpage, vma->vm_flags & VM_WRITE);
-
+#ifdef PROCESS_C_DEBUG
+  printf("actual read = %x\n", actual_read_bytes);
+#endif
   return actual_read_bytes;
 }
 
@@ -496,12 +503,12 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
     struct vm_area_struct *vma = malloc(sizeof(struct vm_area_struct));
     vma->vm_start = upage;
     vma->vm_end = upage + read_bytes + zero_bytes;
-
+#ifdef PROCESS_C_DEBUG
     printf("read = %lx, zero = %lx\n", read_bytes, zero_bytes);
     printf("start = %lx, end = %lx\n", vma->vm_start, vma->vm_end);
     printf("writable = %d\n", (VM_WRITE & -(int)writable));
     printf("file ofs = %lx\n", ofs);
-
+#endif
     vma->vm_flags = VM_READ | VM_EXEC | VM_EXECUTABLE |
                     (VM_WRITE & -(int)writable);
     vma->vm_ops = &vm_load_seg_ops;
@@ -529,7 +536,7 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
             return false;
 
         /* Load this page. */
-#if 0
+#ifdef PROCESS_C_DEBUG
         printf("pos = %x\n", file_tell(file));
         printf("upage = %x\n", upage);
         printf("kpage = %x\n", kpage);
@@ -555,7 +562,6 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
         }
 
         /* Advance. */
-        printf("pread = %x, pzero = %x\n", page_read_bytes, page_zero_bytes);
         read_bytes -= page_read_bytes;
         zero_bytes -= page_zero_bytes;
         upage += PGSIZE;
