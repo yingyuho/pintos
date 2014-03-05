@@ -101,11 +101,11 @@ static int wait_load(tid_t tid) {
 }
 
 static void check_write_array(uint8_t *ptr, int len) {
-// Don't think ahout this code too hard
-if (put_user(ptr, *ptr) == -1)
-    thread_exit();
-if (put_user(ptr + len - 1, ptr[len-1]) == -1)
-    thread_exit();
+  // Don't think ahout this code too hard
+  if (!put_user(ptr, *ptr))
+      thread_exit();
+  if (!put_user(ptr + len - 1, ptr[len-1]))
+      thread_exit();
 }
 
 static void check_array(uint8_t *ptr, int len) {
@@ -125,10 +125,12 @@ static bool check_filename(char *str) {
   // filename is way too long (or we've been passed an invalid
   // pointer)
   uint32_t i;
+  int c;
   for (i = 0; i < 256; ++i) {
-    if (get_user((uint8_t *)(str+i)) == 0)
+    c = get_user((uint8_t *)(str+i));
+    if (c == 0)
       break;
-    else if (get_user((uint8_t *)(str+i)) == -1)
+    else if (c == -1)
       thread_exit();
   }
   if (i == 256) {
@@ -309,6 +311,7 @@ static void syscall_handler(struct intr_frame *f) {
       thread_exit();
 
     // Verify the buffer
+    check_array((void *) args[2], args[3]);
     check_write_array((void *) args[2], args[3]);
 
     if (args[1] == 0) { // stdin

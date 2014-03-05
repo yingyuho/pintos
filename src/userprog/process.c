@@ -460,17 +460,17 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
 
   if (read_bytes)
   {
-    file_seek(vma->vm_file, offset);
-    actual_read_bytes = file_read(vma->vm_file, vmf->kpage, read_bytes);
+    actual_read_bytes = 
+        file_read_at(vma->vm_file, vmf->kpage, read_bytes, offset);
   }
 
   memset(vmf->kpage + actual_read_bytes, 0, PGSIZE - actual_read_bytes);
 
-  install_page(upage, vmf->kpage, vma->vm_flags & VM_WRITE);
 #ifdef PROCESS_C_DEBUG
   printf("actual read = %x\n", actual_read_bytes);
 #endif
-  return actual_read_bytes;
+
+  return install_page(upage, vmf->kpage, vma->vm_flags & VM_WRITE);
 }
 
 static struct vm_operations_struct vm_load_seg_ops = 
@@ -576,6 +576,23 @@ static inline char* kpage_to_phys(char *kpage, char *ptr) {
   return PHYS_BASE + (ptr - kpage - PGSIZE); 
 }
 
+#ifdef VM
+
+static int32_t vm_stack_absent(struct vm_area_struct *vma, 
+                               struct vm_fault *vmf)
+{
+  uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
+#ifdef PROCESS_C_DEBUG
+  printf("upage = %x\n", upage);
+#endif
+  return install_page(upage, vmf->kpage, true);
+}
+
+static struct vm_operations_struct vm_stack_ops = 
+  { .open = NULL, .close = NULL, .absent = vm_stack_absent };
+
+#endif /* VM */
+
 /*! Create a minimal stack by mapping a zeroed page at the top of
     user virtual memory. */
 static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
@@ -583,15 +600,28 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
     bool success = false;
     char *stack, *tok;
     uint32_t argc = 0, i;
+    uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
 
 #ifdef VM
+    struct mm_struct *mm = &thread_current()->mm;
+    struct vm_area_struct *vma = malloc(sizeof(struct vm_area_struct));
+    vma->vm_start = upage;
+    vma->vm_end = PHYS_BASE;
+
+    vma->vm_flags = VM_READ | VM_WRITE;
+
+    vma->vm_ops = &vm_stack_ops;
+
+    mm->vma_stack = vma;
+    mm_insert_vm_area(mm, vma);
+
     kpage = frame_get_page(PAL_USER | PAL_ZERO);
 #else
     kpage = palloc_get_page(PAL_USER | PAL_ZERO);
 #endif
 
     if (kpage != NULL) {
-        success = install_page(((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+        success = install_page(upage, kpage, true);
         if (success) {
 
           /* For "portability" I should probably use sizeof instead of

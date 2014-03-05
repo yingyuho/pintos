@@ -10,8 +10,6 @@
 #include "vm/page.h"
 #endif
 
-//#define EXCEPTION_C_DEBUG
-
 /*! Number of page faults processed. */
 static long long page_fault_cnt;
 
@@ -141,15 +139,52 @@ static void page_fault(struct intr_frame *f) {
     write = (f->error_code & PF_W) != 0;
     user = (f->error_code & PF_U) != 0;
 
-    /* To implement virtual memory, delete the rest of the function
-       body, and replace it with code that brings in the page to
-       which fault_addr refers. */
 #ifdef VM
     if (not_present) {
-      struct vm_area_struct *vma = mm_find(&thread_current()->mm, fault_addr);
-      if (vma != NULL)
+      struct mm_struct *mm = &thread_current()->mm;
+      struct vm_area_struct *vma;
+      uint8_t *esp = f->esp;
+//#define EXCEPTION_C_DEBUG
+      /* Stack growth */
+      vma = mm->vma_stack;
+#ifdef EXCEPTION_C_DEBUG
+      printf("esp = %x, start = %x, end = %x, addr = %x\n", 
+          esp, vma->vm_start, vma->vm_end, fault_addr);
+#endif
+      if (vma != NULL && 
+          vma->vm_start - (1 << 25) < (uint8_t *) fault_addr && 
+          esp - PGSIZE/2 < (uint8_t *) fault_addr && 
+          (uint8_t *) fault_addr < vma->vm_end)
       {
-        uint8_t *upage = (uint8_t *) ((uint32_t) fault_addr & ~PGMASK);
+#ifdef EXCEPTION_C_DEBUG
+        printf("Let's grow the stack!\nstart = %x, end = %x, addr = %x\n", 
+          (size_t) vma->vm_start, (size_t) vma->vm_end, (size_t) fault_addr);
+#endif
+        if (esp < vma->vm_start)
+          vma->vm_start = (uint8_t *) ((size_t) esp & ~PGMASK);
+
+        struct vm_fault vmf =
+        { 
+          .page_ofs = 0,
+          .fault_addr = fault_addr, 
+          .kpage = frame_get_page(PAL_USER | PAL_ZERO)
+        };
+
+        if (!vma->vm_ops->absent(vma, &vmf))
+        {
+          frame_free_page(vmf.kpage);
+          PANIC("page_fault: cannot install page for stack");
+        }
+
+        /* Succeed in growing stack */
+        return;
+      }
+
+      /* Loading of code and data segments */
+      vma = mm_find(mm, fault_addr);
+      if (vma != NULL && (!write || (vma->vm_flags & VM_WRITE)))
+      {
+        uint8_t *upage = (uint8_t *) ((size_t) fault_addr & ~PGMASK);
 
         struct vm_fault vmf =
         { 
@@ -162,20 +197,13 @@ static void page_fault(struct intr_frame *f) {
           (size_t) vma->vm_start, (size_t) vma->vm_end, (size_t) fault_addr);
 #endif
 
-        int read_bytes = vma->vm_ops->absent(vma, &vmf);
-
-        if (read_bytes == -1)
+        if (!vma->vm_ops->absent(vma, &vmf))
         {
           frame_free_page(vmf.kpage);
-          PANIC("Cannot load executable");
+          PANIC("page_fault: cannot install page for segments");
         }
-        // else
-        // {
-        //   uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
-        //   install_page(upage, vmf.kpage, vma->vm_flags & VM_WRITE);
-        // }
 
-        // printf("load = %d\n", read_bytes);
+        /* Succeed in loading code and data segments */
         return;
       }
       // else
@@ -189,6 +217,9 @@ static void page_fault(struct intr_frame *f) {
       f->eax = -1;
       return;
     }
+
+    if (!not_present)
+      thread_exit();
 
     printf("Page fault at %p: %s error %s page in %s context.\n",
            fault_addr,
