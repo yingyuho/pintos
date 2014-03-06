@@ -2,8 +2,10 @@
 #include <debug.h>
 #include <list.h>
 #include <string.h>
+#include <round.h>
 #include "threads/malloc.h"
 #include "threads/synch.h"
+#include "threads/vaddr.h"
 #include "userprog/pagedir.h"
 
 /* An array holding all struct frame_entry */
@@ -20,10 +22,28 @@ static size_t table_size;
 /* A lock protecting frame_table */
 static struct lock table_lock;
 
-void frame_init(void) {
+void frame_entry_replace (struct frame_entry * f, uint32_t *pd, void *upage)
+{
+  f->pagedir = pd;
+  f->upage = upage;
+}
+
+
+
+void frame_init(size_t user_page_limit) {
+  /* Free memory starts at 1 MB and runs to the end of RAM. */
+  uint8_t *free_start = ptov(1024 * 1024);
+  uint8_t *free_end = ptov(init_ram_pages * PGSIZE);
+  size_t free_pages = (free_end - free_start) / PGSIZE;
+  size_t user_pages = free_pages / 2;
+  if (user_pages > user_page_limit)
+    user_pages = user_page_limit;
+
+  frame_table = palloc_get_multiple(PAL_ASSERT, 
+    DIV_ROUND_UP(user_pages * sizeof(struct frame_entry), PGSIZE));
+
   table_size = 0;
   table_capacity = 128;
-  frame_table = malloc(table_capacity * sizeof(struct frame_entry));
   lock_init(&table_lock);
 
   // can be anything since frame_list is empty initially
@@ -52,24 +72,9 @@ void *frame_get_page(uint32_t *pd, void *upage, enum palloc_flags flags) {
   void *kpage = palloc_get_page(flags);
   struct frame_entry *f;
 
-  /* Skip for kernel page */
-  if (flags & PAL_USER) {
-    /* TODO: Paging */
-
+  /* Skip for kernel page or out of pages */
+  if ((kpage != NULL) && (flags & PAL_USER)) {
     lock_acquire(&table_lock);
-
-    if (kpage == NULL)
-    {
-      PANIC("frame_get_page: out of user pages");
-    }
-    else if (table_size >= table_capacity)
-    {
-      /* Double the capacity */
-      table_capacity *= 2;
-      /* and realloc */
-      frame_table = realloc(frame_table, 
-                            table_capacity * sizeof(struct frame_entry));
-    }
 
     f = frame_table + table_size;
 
@@ -140,7 +145,10 @@ void frame_free_pagedir(uint32_t *pd)
   if (frame_table[i].pagedir == pd)
   {
     kpage = pagedir_get_page(pd, frame_table[i].upage);
-    palloc_free_page(kpage);
+
+    if (kpage != NULL)
+      palloc_free_page(kpage);
+
     free_index(i);
   }
   lock_release(&table_lock);

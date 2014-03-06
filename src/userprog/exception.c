@@ -6,7 +6,6 @@
 #include "threads/thread.h"
 
 #ifdef VM
-#include "vm/frame.h"
 #include "vm/page.h"
 #endif
 
@@ -142,39 +141,40 @@ static void page_fault(struct intr_frame *f) {
 #ifdef VM
     if (not_present) {
       struct mm_struct *mm = &thread_current()->mm;
-      uint32_t *pd = thread_current()->PAGEDIR;
       uint8_t *upage = (uint8_t *) ((uintptr_t) fault_addr & ~PGMASK);
       struct vm_area_struct *vma;
       uint8_t *esp = f->esp;
 //#define EXCEPTION_C_DEBUG
       /* Stack growth */
       vma = mm->vma_stack;
-#ifdef EXCEPTION_C_DEBUG
+
+      #ifdef EXCEPTION_C_DEBUG
       printf("esp = %x, start = %x, end = %x, addr = %x\n", 
           esp, vma->vm_start, vma->vm_end, fault_addr);
-#endif
+      #endif
+
       if (vma != NULL && 
           vma->vm_start - (1 << 25) < (uint8_t *) fault_addr && 
           esp - PGSIZE/2 < (uint8_t *) fault_addr && 
           (uint8_t *) fault_addr < vma->vm_end)
       {
-#ifdef EXCEPTION_C_DEBUG
+
+        #ifdef EXCEPTION_C_DEBUG
         printf("Let's grow the stack!\nstart = %x, end = %x, addr = %x\n", 
           (size_t) vma->vm_start, (size_t) vma->vm_end, (size_t) fault_addr);
-#endif
+        #endif
+
         if (esp < vma->vm_start)
           vma->vm_start = (uint8_t *) ((size_t) esp & ~PGMASK);
 
         struct vm_fault vmf =
         { 
           .page_ofs = 0,
-          .fault_addr = fault_addr, 
-          .kpage = frame_get_page(pd, upage, PAL_USER | PAL_ZERO)
+          .fault_addr = fault_addr
         };
 
         if (!vma->vm_ops->absent(vma, &vmf))
         {
-          frame_free_page(pd, upage);
           PANIC("page_fault: cannot install page for stack");
         }
 
@@ -189,17 +189,16 @@ static void page_fault(struct intr_frame *f) {
         struct vm_fault vmf =
         { 
           .page_ofs = (uint32_t) (upage - vma->vm_start),
-          .fault_addr = fault_addr, 
-          .kpage = frame_get_page(pd, upage, PAL_USER)
+          .fault_addr = fault_addr
         };
-#ifdef EXCEPTION_C_DEBUG
+
+        #ifdef EXCEPTION_C_DEBUG
         printf("Cool, start = %x, end = %x, addr = %x\n", 
           (size_t) vma->vm_start, (size_t) vma->vm_end, (size_t) fault_addr);
-#endif
+        #endif
 
         if (!vma->vm_ops->absent(vma, &vmf))
         {
-          frame_free_page(pd, upage);
           PANIC("page_fault: cannot install page for segments");
         }
 

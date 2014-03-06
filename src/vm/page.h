@@ -65,7 +65,6 @@ struct vm_area_struct
 struct vm_fault {
     off_t page_ofs;
     void *fault_addr;
-    uint8_t *kpage;
 };
 
 struct vm_operations_struct {

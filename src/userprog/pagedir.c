@@ -31,8 +31,6 @@ uint32_t * pagedir_create(void) {
 
 /*! Destroys page directory PD, freeing all the pages it references. */
 void pagedir_destroy(uint32_t *pd) {
-    uint32_t *pde;
-
     if (pd == NULL)
         return;
 
@@ -40,6 +38,8 @@ void pagedir_destroy(uint32_t *pd) {
 #ifdef VM
     frame_free_pagedir(pd);
 #else
+    uint32_t *pde;
+
     for (pde = pd; pde < pd + pd_no(PHYS_BASE); pde++)
     if (*pde & PTE_P) {
         uint32_t *pt = pde_get_pt(*pde);
@@ -47,7 +47,6 @@ void pagedir_destroy(uint32_t *pd) {
 
         for (pte = pt; pte < pt + PGSIZE / sizeof *pte; pte++) {
             if (*pte & PTE_P) 
-
                 palloc_free_page(pte_get_page(*pte));
         }
         palloc_free_page(pt);
@@ -148,6 +147,43 @@ void pagedir_clear_page(uint32_t *pd, void *upage) {
         *pte &= ~PTE_P;
         invalidate_pagedir(pd);
     }
+}
+
+/*! Store auxiliary information into a non-present user virtual page. 
+    The last 3 bits (PTE_P, PTE_W, PTE_U) of AUX must be 0 */
+void pagedir_set_aux(uint32_t *pd, void *upage, uint32_t aux) {
+    uint32_t *pte;
+    const uint32_t mask = PTE_P | PTE_W | PTE_U;
+
+    ASSERT((aux & mask) == 0);
+    ASSERT(pg_ofs(upage) == 0);
+    ASSERT(is_user_vaddr(upage));
+
+    pte = lookup_page(pd, upage, false);
+
+    ASSERT(pte != NULL);
+    ASSERT((*pte & PTE_P) == 0);
+
+    /* Retain only the last 3 bits */
+    *pte &= mask;
+    /* Store AUX */
+    *pte |= aux;
+}
+
+/*! Retrieve auxiliary information into a non-present user virtual page. */
+uint32_t pagedir_get_aux(uint32_t *pd, void *upage) {
+    uint32_t *pte;
+    const uint32_t mask = PTE_P | PTE_W | PTE_U;
+
+    ASSERT(pg_ofs(upage) == 0);
+    ASSERT(is_user_vaddr(upage));
+
+    pte = lookup_page(pd, upage, false);
+
+    ASSERT(pte != NULL);
+    ASSERT((*pte & PTE_P) == 0);
+
+    return *pte & ~mask;
 }
 
 /*! Returns true if the PTE for virtual page VPAGE in PD is dirty, that is, if

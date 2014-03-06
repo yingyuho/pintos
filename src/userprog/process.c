@@ -437,7 +437,10 @@ static bool validate_segment(const struct Elf32_Phdr *phdr, struct file *file) {
 static int32_t vm_load_seg_absent(struct vm_area_struct *vma, 
                                   struct vm_fault *vmf)
 {
+  uint32_t *pd = thread_current()->PAGEDIR;
   uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
+  uint8_t *kpage;
+
   off_t offset = vma->vm_file_ofs + vmf->page_ofs;
 
   int read_bytes = vma->vm_file_read_bytes - vmf->page_ofs;
@@ -445,26 +448,20 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
   read_bytes = (read_bytes > PGSIZE) ? PGSIZE : read_bytes;
 
   int actual_read_bytes = 0;
-#ifdef PROCESS_C_DEBUG
-  printf("read = %x, offset = %x, upage = %x\n", 
-    read_bytes,
-    vma->vm_file_ofs + vmf->page_ofs, 
-    (size_t) upage);
-#endif
 
   if (read_bytes)
   {
+    kpage = frame_get_page(pd, upage, PAL_USER);
     actual_read_bytes = 
-        file_read_at(vma->vm_file, vmf->kpage, read_bytes, offset);
+        file_read_at(vma->vm_file, kpage, read_bytes, offset);
+    memset(kpage + actual_read_bytes, 0, PGSIZE - actual_read_bytes);
+  }
+  else
+  {
+    kpage = frame_get_page(pd, upage, PAL_USER | PAL_ZERO);
   }
 
-  memset(vmf->kpage + actual_read_bytes, 0, PGSIZE - actual_read_bytes);
-
-#ifdef PROCESS_C_DEBUG
-  printf("actual read = %x\n", actual_read_bytes);
-#endif
-
-  return install_page(upage, vmf->kpage, vma->vm_flags & VM_WRITE);
+  return install_page(upage, kpage, vma->vm_flags & VM_WRITE);
 }
 
 static struct vm_operations_struct vm_load_seg_ops = 
@@ -497,12 +494,7 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
     struct vm_area_struct *vma = malloc(sizeof(struct vm_area_struct));
     vma->vm_start = upage;
     vma->vm_end = upage + read_bytes + zero_bytes;
-#ifdef PROCESS_C_DEBUG
-    printf("read = %lx, zero = %lx\n", read_bytes, zero_bytes);
-    printf("start = %lx, end = %lx\n", vma->vm_start, vma->vm_end);
-    printf("writable = %d\n", (VM_WRITE & -(int)writable));
-    printf("file ofs = %lx\n", ofs);
-#endif
+
     vma->vm_flags = VM_READ | VM_EXEC | VM_EXECUTABLE |
                     (VM_WRITE & -(int)writable);
     vma->vm_ops = &vm_load_seg_ops;
@@ -527,11 +519,6 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
             return false;
 
         /* Load this page. */
-#ifdef PROCESS_C_DEBUG
-        printf("pos = %x\n", file_tell(file));
-        printf("upage = %x\n", upage);
-        printf("kpage = %x\n", kpage);
-#endif
         if (file_read(file, kpage, page_read_bytes) != (int) page_read_bytes) {
             palloc_free_page(kpage);
             return false;
@@ -564,11 +551,11 @@ static inline char* kpage_to_phys(char *kpage, char *ptr) {
 static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED, 
                                struct vm_fault *vmf)
 {
+  uint32_t *pd = thread_current()->PAGEDIR;
   uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
-#ifdef PROCESS_C_DEBUG
-  printf("upage = %x\n", upage);
-#endif
-  return install_page(upage, vmf->kpage, true);
+  uint8_t *kpage = frame_get_page(pd, upage, PAL_USER | PAL_ZERO);
+
+  return install_page(upage, kpage, true);
 }
 
 static struct vm_operations_struct vm_stack_ops = 

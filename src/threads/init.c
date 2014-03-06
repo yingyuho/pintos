@@ -49,6 +49,7 @@
 #ifdef VM
 
 #include "vm/frame.h"
+#include "vm/swap.h"
 
 #endif
 
@@ -140,7 +141,8 @@ int main(void) {
 #endif
 
 #ifdef VM
-    frame_init();
+    frame_init(user_page_limit);
+    swap_init();
 #endif
 
     printf("Boot complete.\n");
@@ -152,7 +154,7 @@ int main(void) {
     shutdown();
     thread_exit();
 }
-
+
 /*! Clear the "BSS", a segment that should be initialized to
     zeros.  It isn't actually stored on disk or zeroed by the
     kernel loader, so we have to zero it ourselves.

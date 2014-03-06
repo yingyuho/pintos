@@ -25,7 +25,7 @@ struct frame_entry
     // uint16_t flags;
 };
 
-void frame_init(void);
+void frame_init(size_t user_page_limit);
 
 void *frame_get_page (uint32_t *pd, void *upage, enum palloc_flags);
 
@@ -36,5 +36,7 @@ void frame_free_pagedir (uint32_t *pd);
 struct frame_entry *frame_clock_hand (void);
 
 void frame_clock_advance (void);
+
+void frame_entry_replace (struct frame_entry *, uint32_t *pd, void *upage);
 
 #endif /* vm/frame.h */
