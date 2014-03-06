@@ -5,6 +5,7 @@
 #include <list.h>
 
 #include "threads/palloc.h"
+#include "vm/page.h"
 
 enum frame_flags
 {
@@ -13,8 +14,10 @@ enum frame_flags
 
 struct frame_entry
 {
-	uint32_t *pagedir;
+    uint32_t *pagedir;
     void *upage;
+    
+    struct mm_struct *mm;
 
     /* Info for circular list */
     /* I don't use list.h because it would be hard to realloc entries */
@@ -27,7 +30,7 @@ struct frame_entry
 
 void frame_init(size_t user_page_limit);
 
-void *frame_get_page (uint32_t *pd, void *upage, enum palloc_flags);
+void *frame_get_page (struct mm_struct *mm, void *upage, enum palloc_flags);
 
 void frame_free_page (uint32_t *pd, void *upage);
 

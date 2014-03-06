@@ -22,13 +22,11 @@ static size_t table_size;
 /* A lock protecting frame_table */
 static struct lock table_lock;
 
-void frame_entry_replace (struct frame_entry * f, uint32_t *pd, void *upage)
+void frame_entry_replace(struct frame_entry * f, uint32_t *pd, void *upage)
 {
   f->pagedir = pd;
   f->upage = upage;
 }
-
-
 
 void frame_init(size_t user_page_limit) {
   /* Free memory starts at 1 MB and runs to the end of RAM. */
@@ -68,7 +66,10 @@ void frame_clock_advance(void) {
   lock_release(&table_lock);
 }
 
-void *frame_get_page(uint32_t *pd, void *upage, enum palloc_flags flags) {
+void *frame_get_page(struct mm_struct *mm, 
+                     void *upage, 
+                     enum palloc_flags flags)
+{
   void *kpage = palloc_get_page(flags);
   struct frame_entry *f;
 
@@ -78,7 +79,8 @@ void *frame_get_page(uint32_t *pd, void *upage, enum palloc_flags flags) {
 
     f = frame_table + table_size;
 
-    f->pagedir = pd;
+    f->mm = mm;
+    f->pagedir = mm->pagedir;
     f->upage = upage;
 
     if (table_size > 0) {

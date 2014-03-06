@@ -437,7 +437,6 @@ static bool validate_segment(const struct Elf32_Phdr *phdr, struct file *file) {
 static int32_t vm_load_seg_absent(struct vm_area_struct *vma, 
                                   struct vm_fault *vmf)
 {
-  uint32_t *pd = thread_current()->PAGEDIR;
   uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
   uint8_t *kpage;
 
@@ -451,14 +450,14 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
 
   if (read_bytes)
   {
-    kpage = frame_get_page(pd, upage, PAL_USER);
+    kpage = frame_get_page(vma->vm_mm, upage, PAL_USER);
     actual_read_bytes = 
         file_read_at(vma->vm_file, kpage, read_bytes, offset);
     memset(kpage + actual_read_bytes, 0, PGSIZE - actual_read_bytes);
   }
   else
   {
-    kpage = frame_get_page(pd, upage, PAL_USER | PAL_ZERO);
+    kpage = frame_get_page(vma->vm_mm, upage, PAL_USER | PAL_ZERO);
   }
 
   return install_page(upage, kpage, vma->vm_flags & VM_WRITE);
@@ -551,9 +550,8 @@ static inline char* kpage_to_phys(char *kpage, char *ptr) {
 static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED, 
                                struct vm_fault *vmf)
 {
-  uint32_t *pd = thread_current()->PAGEDIR;
   uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
-  uint8_t *kpage = frame_get_page(pd, upage, PAL_USER | PAL_ZERO);
+  uint8_t *kpage = frame_get_page(vma->vm_mm, upage, PAL_USER | PAL_ZERO);
 
   return install_page(upage, kpage, true);
 }
@@ -567,14 +565,13 @@ static struct vm_operations_struct vm_stack_ops =
     user virtual memory. */
 static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
     char *kpage;
-    bool success = false;
     char *stack, *tok;
     uint32_t argc = 0, i;
     uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
 
 #ifdef VM
-    uint32_t *pd = thread_current()->PAGEDIR;
     struct mm_struct *mm = &thread_current()->mm;
+    uint32_t *pd = mm->pagedir;
     struct vm_area_struct *vma = malloc(sizeof(struct vm_area_struct));
     vma->vm_start = upage;
     vma->vm_end = PHYS_BASE;
@@ -586,76 +583,73 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
     mm->vma_stack = vma;
     mm_insert_vm_area(mm, vma);
 
-    kpage = frame_get_page(pd, upage, PAL_USER | PAL_ZERO);
+    /* Load kpage by causing page fault at upage */
+    *upage = 0;
+    kpage = pagedir_get_page(pd, upage);
 #else
     kpage = palloc_get_page(PAL_USER | PAL_ZERO);
-#endif
 
-    if (kpage != NULL) {
-        success = install_page(upage, kpage, true);
-        if (success) {
-
-          /* For "portability" I should probably use sizeof instead of
-             assuming sizes are 4 */
-          stack = (char *)kpage + PGSIZE;
-
-          /* Restore exec_name to the whole cmdline */
-          if (*saveptr != '\0')
-            *(saveptr - 1) = ' ';
-
-          /* First, push the name onto the stack */
-          stack -= strlen(exec_name) + 1;
-          memcpy(stack, exec_name,  strlen(exec_name) + 1);
-
-          /* Count argc */
-          tok = stack;
-          while(*tok != '\0')
-            argc += (*tok++ != ' ' && (*tok == ' ' || *tok == '\0'));
-
-          /* Make sure argc > 0 */
-          ASSERT(argc > 0);
-
-          /* Take note of the start of cmdline */
-          tok = stack;
-
-          /* Pad the stack out. The page is already zeroed when allocated,
-             so that's okay */
-          stack -= (((uint32_t)stack) % sizeof(char*));
-
-          /* Reserve spaces for argv[i], 0 <= i <= argc */
-          stack -= (argc + 1) * sizeof(char*);
-
-          /* Fill argv[i], 0 <= i < argc */
-          i = 0;
-          for (tok = strtok_r(tok, " ", &saveptr); 
-               tok; 
-               tok = strtok_r(NULL, " ", &saveptr)) {
-            if (*tok != '\0')
-              ((char**)stack)[i++] = kpage_to_phys(kpage, tok);
-          }
-
-          /* Push argv */
-          ((char**)stack)[-1] = kpage_to_phys(kpage, stack);
-          stack -= sizeof(char*);
-
-          /* Push argc */
-          ((uint32_t*)stack)[-1] = argc;
-          stack -= sizeof(uint32_t);
-
-          /* Empty return address */
-          stack -= sizeof(void*);
-
-          *esp = (stack - (char *)kpage - PGSIZE + PHYS_BASE);
-        }
-        else {
-#ifdef VM
-            frame_free_page(pd, upage);
-#else
-            palloc_free_page(kpage);
-#endif
-        }
+    if (kpage == NULL) {
+      return false;
+    } else if (!install_page(upage, kpage, true)) {
+      palloc_free_page(kpage);
+      return false;
     }
-    return success;
+#endif
+
+    /* For "portability" I should probably use sizeof instead of
+       assuming sizes are 4 */
+    stack = (char *)kpage + PGSIZE;
+
+    /* Restore exec_name to the whole cmdline */
+    if (*saveptr != '\0')
+      *(saveptr - 1) = ' ';
+
+    /* First, push the name onto the stack */
+    stack -= strlen(exec_name) + 1;
+    memcpy(stack, exec_name,  strlen(exec_name) + 1);
+
+    /* Count argc */
+    tok = stack;
+    while(*tok != '\0')
+      argc += (*tok++ != ' ' && (*tok == ' ' || *tok == '\0'));
+
+    /* Make sure argc > 0 */
+    ASSERT(argc > 0);
+
+    /* Take note of the start of cmdline */
+    tok = stack;
+
+    /* Pad the stack out. The page is already zeroed when allocated,
+       so that's okay */
+    stack -= (((uint32_t)stack) % sizeof(char*));
+
+    /* Reserve spaces for argv[i], 0 <= i <= argc */
+    stack -= (argc + 1) * sizeof(char*);
+
+    /* Fill argv[i], 0 <= i < argc */
+    i = 0;
+    for (tok = strtok_r(tok, " ", &saveptr); 
+         tok; 
+         tok = strtok_r(NULL, " ", &saveptr)) {
+      if (*tok != '\0')
+        ((char**)stack)[i++] = kpage_to_phys(kpage, tok);
+    }
+
+    /* Push argv */
+    ((char**)stack)[-1] = kpage_to_phys(kpage, stack);
+    stack -= sizeof(char*);
+
+    /* Push argc */
+    ((uint32_t*)stack)[-1] = argc;
+    stack -= sizeof(uint32_t);
+
+    /* Empty return address */
+    stack -= sizeof(void*);
+
+    *esp = (stack - (char *)kpage - PGSIZE + PHYS_BASE);
+
+    return true;
 }
 
 /*! Adds a mapping from user virtual address UPAGE to kernel
