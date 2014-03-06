@@ -40,11 +40,8 @@ tid_t process_execute(const char *file_name) {
 
     /* Make a copy of FILE_NAME.
        Otherwise there's a race between the caller and load(). */
-#ifdef VM
-    fn_copy = frame_get_page(0);
-#else
     fn_copy = palloc_get_page(0);
-#endif
+
     if (fn_copy == NULL)
         return TID_ERROR;
     strlcpy(fn_copy, file_name, PGSIZE);
@@ -263,11 +260,8 @@ bool load(const char *file_name, void (**eip) (void), void **esp) {
        sort of silly; I think the actual standards allow all sorts of
        nonsense in file names, like EOF and newlines). */
     char *saveptr;
-#ifdef VM
-    char *buf = (char *) frame_get_page(0);
-#else
     char *buf = (char *) palloc_get_page(0);
-#endif
+
     char *exec_name;
     if (buf == NULL) {
       // Well, that's awkward
@@ -527,11 +521,8 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
         /* Get a page of memory. */
-#ifdef VM
-        uint8_t *kpage = frame_get_page(PAL_USER);
-#else
         uint8_t *kpage = palloc_get_page(PAL_USER);
-#endif
+
         if (kpage == NULL)
             return false;
 
@@ -542,22 +533,14 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
         printf("kpage = %x\n", kpage);
 #endif
         if (file_read(file, kpage, page_read_bytes) != (int) page_read_bytes) {
-#ifdef VM
-            frame_free_page(kpage);
-#else
             palloc_free_page(kpage);
-#endif
             return false;
         }
         memset(kpage + page_read_bytes, 0, page_zero_bytes);
 
         /* Add the page to the process's address space. */
         if (!install_page(upage, kpage, writable)) {
-#ifdef VM
-            frame_free_page(kpage);
-#else
             palloc_free_page(kpage);
-#endif
             return false; 
         }
 
@@ -578,7 +561,7 @@ static inline char* kpage_to_phys(char *kpage, char *ptr) {
 
 #ifdef VM
 
-static int32_t vm_stack_absent(struct vm_area_struct *vma, 
+static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED, 
                                struct vm_fault *vmf)
 {
   uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
@@ -603,6 +586,7 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
     uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
 
 #ifdef VM
+    uint32_t *pd = thread_current()->PAGEDIR;
     struct mm_struct *mm = &thread_current()->mm;
     struct vm_area_struct *vma = malloc(sizeof(struct vm_area_struct));
     vma->vm_start = upage;
@@ -615,7 +599,7 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
     mm->vma_stack = vma;
     mm_insert_vm_area(mm, vma);
 
-    kpage = frame_get_page(PAL_USER | PAL_ZERO);
+    kpage = frame_get_page(pd, upage, PAL_USER | PAL_ZERO);
 #else
     kpage = palloc_get_page(PAL_USER | PAL_ZERO);
 #endif
@@ -678,7 +662,7 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
         }
         else {
 #ifdef VM
-            frame_free_page(kpage);
+            frame_free_page(pd, upage);
 #else
             palloc_free_page(kpage);
 #endif

@@ -142,6 +142,8 @@ static void page_fault(struct intr_frame *f) {
 #ifdef VM
     if (not_present) {
       struct mm_struct *mm = &thread_current()->mm;
+      uint32_t *pd = thread_current()->PAGEDIR;
+      uint8_t *upage = (uint8_t *) ((uintptr_t) fault_addr & ~PGMASK);
       struct vm_area_struct *vma;
       uint8_t *esp = f->esp;
 //#define EXCEPTION_C_DEBUG
@@ -167,12 +169,12 @@ static void page_fault(struct intr_frame *f) {
         { 
           .page_ofs = 0,
           .fault_addr = fault_addr, 
-          .kpage = frame_get_page(PAL_USER | PAL_ZERO)
+          .kpage = frame_get_page(pd, upage, PAL_USER | PAL_ZERO)
         };
 
         if (!vma->vm_ops->absent(vma, &vmf))
         {
-          frame_free_page(vmf.kpage);
+          frame_free_page(pd, upage);
           PANIC("page_fault: cannot install page for stack");
         }
 
@@ -184,13 +186,11 @@ static void page_fault(struct intr_frame *f) {
       vma = mm_find(mm, fault_addr);
       if (vma != NULL && (!write || (vma->vm_flags & VM_WRITE)))
       {
-        uint8_t *upage = (uint8_t *) ((size_t) fault_addr & ~PGMASK);
-
         struct vm_fault vmf =
         { 
           .page_ofs = (uint32_t) (upage - vma->vm_start),
           .fault_addr = fault_addr, 
-          .kpage = frame_get_page(PAL_USER)
+          .kpage = frame_get_page(pd, upage, PAL_USER)
         };
 #ifdef EXCEPTION_C_DEBUG
         printf("Cool, start = %x, end = %x, addr = %x\n", 
@@ -199,7 +199,7 @@ static void page_fault(struct intr_frame *f) {
 
         if (!vma->vm_ops->absent(vma, &vmf))
         {
-          frame_free_page(vmf.kpage);
+          frame_free_page(pd, upage);
           PANIC("page_fault: cannot install page for segments");
         }
 

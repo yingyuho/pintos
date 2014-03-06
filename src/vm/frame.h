@@ -13,21 +13,28 @@ enum frame_flags
 
 struct frame_entry
 {
-    void *page;
+	uint32_t *pagedir;
+    void *upage;
 
     /* Info for circular list */
     /* I don't use list.h because it would be hard to realloc entries */
     size_t prev;
     size_t next;
 
-    uint16_t age;
-    uint16_t flags;
+    // uint16_t age;
+    // uint16_t flags;
 };
 
 void frame_init(void);
 
-void *frame_get_page (enum palloc_flags);
+void *frame_get_page (uint32_t *pd, void *upage, enum palloc_flags);
 
-void frame_free_page (void *);
+void frame_free_page (uint32_t *pd, void *upage);
+
+void frame_free_pagedir (uint32_t *pd);
+
+struct frame_entry *frame_clock_hand (void);
+
+void frame_clock_advance (void);
 
 #endif /* vm/frame.h */
