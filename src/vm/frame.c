@@ -4,51 +4,62 @@
 #include <string.h>
 #include <round.h>
 #include <stdio.h>
-#include "threads/malloc.h"
+#include "threads/palloc.h"
 #include "threads/synch.h"
-#include "threads/vaddr.h"
-#include "userprog/pagedir.h"
 
 /* An array holding all struct frame_entry */
-static struct frame_entry *frame_table;
+static struct frame_entry *ftable;
 
 /* The next candidate frame to be evicted */
 static int32_t clock_hand;
 #define CLOCK_HAND_NONE -1
 
-/* realloc frame_table when table_size > table_capacity */
+/* realloc ftable when table_size > table_capacity */
 static size_t table_capacity;
 static size_t table_size;
 
-/* A lock protecting frame_table */
+/* A lock protecting ftable */
 static struct lock table_lock;
 
 static inline size_t *prev(size_t i) {
-  return &frame_table[i].prev;
+  return &ftable[i].prev;
 }
 
 static inline size_t *next(size_t i) {
-  return &frame_table[i].next;
+  return &ftable[i].next;
 }
 
 static void free_index(size_t i);
 
 void frame_make(struct frame_entry *f, 
-                struct mm_struct *mm, 
+                struct vm_area_struct *vma, 
                 void *upage)
 {
-  f->mm = mm;
-  f->pagedir = mm->pagedir;
+  f->vma = vma;
+  f->pagedir = vma->vm_mm->pagedir;
   f->upage = upage;
   f->flags = 0;
+
+  if ((vma->vm_flags & VM_EXECUTABLE) && !(vma->vm_flags & VM_WRITE))
+    f->flags |= PG_CODE;
+}
+
+void frame_entry_pin(struct frame_entry *f) {
+  // ASSERT(!(f->flags & PG_LOCKED));
+  f->flags |= PG_LOCKED;
+}
+
+void frame_entry_unpin (struct frame_entry *f) {
+  // ASSERT(f->flags & PG_LOCKED);
+  f->flags &= ~PG_LOCKED;
 }
 
 void frame_push(struct frame_entry *f)
 {
     lock_acquire(&table_lock);
 
-    frame_table[table_size] = *f;
-    f = frame_table + table_size;
+    ftable[table_size] = *f;
+    f = ftable + table_size;
 
     if (table_size > 0) {
       /* Insert frame just before clock_hand */
@@ -80,14 +91,16 @@ bool frame_pull(struct frame_entry *f, frame_func *func, void *aux)
   }
 
   do {
+    ASSERT(clock_hand < (int) table_size);
     i = clock_hand;
     clock_hand = *next(clock_hand);
-  } while (!func(&frame_table[i], aux) && --count > 0);
+  } while (!func(&ftable[i], aux) && --count > 0);
 
-  bool success = (count > 0) || func(&frame_table[i], aux);
+  bool success = (count > 0) || func(&ftable[i], aux);
 
   if (success) {
-    *f = frame_table[i];
+    // printf("frame_pull: i = %x, pd = %x\n", i, (uintptr_t) ftable[i].pagedir);
+    *f = ftable[i];
     free_index(i);
   }
 
@@ -96,15 +109,39 @@ bool frame_pull(struct frame_entry *f, frame_func *func, void *aux)
   return success;
 }
 
-void frame_remove_if(frame_func *func, void *aux)
+void frame_for_each(frame_func *func, void *aux)
 {
   size_t i;
 
   lock_acquire(&table_lock);
 
   for (i = 0; i < table_size; i++)
-    if (func(&frame_table[i], aux))
+    func(&ftable[i], aux);
+
+  lock_release(&table_lock);
+}
+
+void frame_remove_if(frame_func *func, void *aux)
+{
+  size_t i;
+
+  lock_acquire(&table_lock);
+
+  i = 0;
+
+  while (i < table_size) {
+    if (func(&ftable[i], aux))
       free_index(i);
+    else
+      ++i;
+  }
+
+  // for (i = table_size; (int) i >= 0; --i) {
+  //   printf("i = %x\n", i);
+  //   if (func(&ftable[i], aux)) {
+  //     free_index(i);
+  //   }
+  // }
 
   lock_release(&table_lock);
 }
@@ -118,7 +155,7 @@ void frame_init(size_t user_page_limit) {
   if (user_pages > user_page_limit)
     user_pages = user_page_limit;
 
-  frame_table = palloc_get_multiple(PAL_ASSERT, 
+  ftable = palloc_get_multiple(PAL_ASSERT, 
     DIV_ROUND_UP(user_pages * sizeof(struct frame_entry), PGSIZE));
 
   table_size = 0;
@@ -143,14 +180,13 @@ static void free_index(size_t i)
     if ((int) i == clock_hand)
       clock_hand = *next(clock_hand);
 
-    /* Remove frame_table[i] from the circular list */
-
+    /* Remove ftable[i] from the circular list */
     *next(*prev(i)) = *next(i);
     *prev(*next(i)) = *prev(i);
 
     if (i != table_size) {
-      /* Move frame_table[table_size] to frame_table[i] */
-      frame_table[i] = frame_table[table_size];
+      /* Move ftable[table_size] to ftable[i] */
+      ftable[i] = ftable[table_size];
 
       /* Repair the circular list */
       *next(*prev(i)) = i;
@@ -161,8 +197,10 @@ static void free_index(size_t i)
         clock_hand = (int) i;
     }
 
-    /* Fill 0xcc to frame_table[table_size] to make debugging easier */
-    memset(frame_table + table_size, 0xaa, sizeof(struct frame_entry));
+    ASSERT(clock_hand < (int) table_size);
+
+    /* Fill 0xcc to ftable[table_size] to make debugging easier */
+    memset(ftable + table_size, 0xaa, sizeof(struct frame_entry));
   }
 }
 
@@ -176,8 +214,8 @@ void frame_dump(void)
     printf("%x: %x <- pd = %x, up = %x -> %x\n",
       i, 
       *prev(i), 
-      (uintptr_t) frame_table[i].pagedir, 
-      (uintptr_t) frame_table[i].upage, 
+      (uintptr_t) ftable[i].pagedir, 
+      (uintptr_t) ftable[i].upage, 
       *next(i));
   }
   lock_release(&table_lock);

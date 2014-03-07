@@ -3,9 +3,12 @@
 
 #include <stdint.h>
 #include <debug.h>
+#include <hash.h>
+// #include <list.h>
 #include "threads/pte.h"
 #include "threads/synch.h"
 #include "filesys/file.h"
+// #include "vm/frame.h"
 
 struct mm_struct;
 struct vm_area_struct;
@@ -38,6 +41,15 @@ struct mm_struct
     struct vm_area_struct *vma_cache;
     struct vm_area_struct *vma_stack;
     struct lock mmap_lock_w;
+    struct lock mmap_lock_pf;
+};
+
+struct vm_page_struct
+{
+    void *upage;
+    uint32_t pte;
+    uint32_t swap;
+    struct hash_elem elem;
 };
 
 struct vm_area_struct
@@ -51,6 +63,8 @@ struct vm_area_struct
     uint32_t vm_page_prot;
     uint32_t vm_flags;
 
+    struct hash vm_page_table;
+
     struct vm_operations_struct *vm_ops;
 
     struct file *vm_file;
@@ -59,12 +73,19 @@ struct vm_area_struct
     uint32_t vm_file_zero_bytes;
 };
 
+struct vm_interval {
+    uint32_t *pagedir;
+    uint8_t *vm_start;
+    uint8_t *vm_end;
+};
+
 /* Reference:
  * http://lxr.free-electrons.com/source/include/linux/mm.h?a=avr32#L210
  */
 struct vm_fault {
     off_t page_ofs;
     void *fault_addr;
+    bool user;
 };
 
 struct vm_operations_struct {
@@ -83,5 +104,9 @@ void mm_init (struct mm_struct *);
 void mm_insert_vm_area (struct mm_struct *, struct vm_area_struct *);
 
 struct vm_area_struct *mm_find (struct mm_struct *, uint8_t *);
+
+struct hash_elem *vm_insert_page(struct vm_area_struct *, 
+                                 void *upage,
+                                 void *kpage);
 
 #endif /* vm/page.h */

@@ -6,6 +6,8 @@
 #include "threads/thread.h"
 
 #ifdef VM
+#include <round.h>
+#include "threads/synch.h"
 #include "vm/page.h"
 #endif
 
@@ -139,8 +141,9 @@ static void page_fault(struct intr_frame *f) {
     user = (f->error_code & PF_U) != 0;
 
 #ifdef VM
+    struct mm_struct *mm = &(thread_current()->mm);
+
     if (not_present) {
-      struct mm_struct *mm = &thread_current()->mm;
       uint8_t *upage = (uint8_t *) ((uintptr_t) fault_addr & ~PGMASK);
       struct vm_area_struct *vma;
       uint8_t *esp = f->esp;
@@ -165,12 +168,13 @@ static void page_fault(struct intr_frame *f) {
         #endif
 
         if (esp < vma->vm_start)
-          vma->vm_start = (uint8_t *) ((size_t) esp & ~PGMASK);
+          vma->vm_start = (uint8_t *) ROUND_DOWN((uintptr_t) esp, PGSIZE);
 
         struct vm_fault vmf =
         { 
           .page_ofs = 0,
-          .fault_addr = fault_addr
+          .fault_addr = fault_addr, 
+          .user = user
         };
 
         if (!vma->vm_ops->absent(vma, &vmf))
@@ -189,7 +193,8 @@ static void page_fault(struct intr_frame *f) {
         struct vm_fault vmf =
         { 
           .page_ofs = (uint32_t) (upage - vma->vm_start),
-          .fault_addr = fault_addr
+          .fault_addr = fault_addr, 
+          .user = user
         };
 
         #ifdef EXCEPTION_C_DEBUG
@@ -222,9 +227,12 @@ static void page_fault(struct intr_frame *f) {
 
     // struct vm_area_struct *vma;
 
-    // for (vma = thread_current()->mm.mmap; vma != NULL; vma = vma->next)
-    //   printf("start = %x, end = %x\n", 
-    //     (uintptr_t) vma->vm_start, (uintptr_t) vma->vm_end);
+#if 0
+    struct vm_area_struct *vma;
+    for (vma = thread_current()->mm.mmap; vma != NULL; vma = vma->next)
+      printf("start = %x, end = %x\n", 
+        (uintptr_t) vma->vm_start, (uintptr_t) vma->vm_end);
+#endif
 
     printf("Page fault at %p: %s error %s page in %s context.\n",
            fault_addr,

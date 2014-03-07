@@ -17,6 +17,12 @@ void shutdown_power_off(void) NO_RETURN;
 #include "filesys/filesys.h"
 #include <string.h>
 
+#ifdef VM
+#include <round.h>
+#include "vm/frame.h"
+#include "vm/page.h"
+#endif
+
 struct lock fs_lock;
 
 static void syscall_handler(struct intr_frame *);
@@ -140,6 +146,50 @@ static bool check_filename(char *str) {
   return true;
 }
 
+#ifdef VM
+static bool pin_func(struct frame_entry *f, void *aux) {
+  struct vm_interval *v = aux;
+
+  if (v->pagedir == f->pagedir && 
+          v->vm_start <= (uint8_t *) f->upage &&
+          (uint8_t *) f->upage < v->vm_end)
+  {
+    frame_entry_pin(f);
+  }
+
+  return true;
+}
+
+static bool unpin_func(struct frame_entry *f, void *aux) {
+  uint32_t *pd = aux;
+  if (f->pagedir == pd)
+    frame_entry_unpin(f);
+  return true;
+}
+
+static void pin_frames(uint32_t *pd, uint8_t *start, size_t len)
+{
+  struct vm_interval vm_intv = 
+  { 
+    .pagedir = pd,
+    .vm_start = (uint8_t *) ROUND_DOWN((uintptr_t) start, PGSIZE), 
+    .vm_end = (uint8_t *) ROUND_UP((uintptr_t) start + len, PGSIZE)
+  };
+
+  frame_for_each(pin_func, &vm_intv);
+
+  uint8_t *ptr;
+  for (ptr = vm_intv.vm_start; ptr < vm_intv.vm_end; ptr += PGSIZE)
+    if(get_user(ptr) < 0) {
+      printf("pin_frames: failed, s = %x, p = %x, e = %x\n",
+        (uintptr_t) vm_intv.vm_start, 
+        (uintptr_t) ptr, 
+        (uintptr_t) vm_intv.vm_end);
+      thread_exit();
+    }
+}
+#endif
+
 // Since we have no particular guarantee on what open() will return other
 // than that it's positive and not equal to any other fd open by the file...
 static int next_fd = 10;
@@ -150,7 +200,7 @@ static void syscall_handler(struct intr_frame *f) {
   // well get the others.
   int32_t args[4];
   int i;
-  
+
   // Sanity check: Stack pointer should not be below the code segment (how
   // would you even get there)
   if (f->esp < (void *)0x08048000)
@@ -165,19 +215,21 @@ static void syscall_handler(struct intr_frame *f) {
 
   case SYS_HALT:
     shutdown_power_off();
-    break;
+    goto done;
 
   case SYS_EXIT:
     get_user_arg(args, f->esp, 1);
     thread_current()->exit_status = args[1];
     thread_current()->ashes->exit_status = args[1];
     thread_exit();
-    break;
+    goto done;
 
   case SYS_EXEC:
     get_user_arg(args, f->esp, 1);
     f->eax = -1;
     if (get_user((uint8_t*)args[1]) < 0) { thread_exit(); }
+    pin_frames(cur->mm.pagedir, (void *) args[1], 
+      strlen((const char *) args[1]));
     //len = strlen((const char*)args[1]) + 1;
     //buf = malloc(len);
     //strlcpy(buf, (const char*)args[1], len);
@@ -187,7 +239,8 @@ static void syscall_handler(struct intr_frame *f) {
       process_wait(tid);
         
     //free(buf);
-    break;
+    goto done;
+
   case SYS_WAIT:
     get_user_arg(args, f->esp, 1);
     f->eax = process_wait(args[1]);
@@ -199,15 +252,16 @@ static void syscall_handler(struct intr_frame *f) {
     // Check that the filename is valid
     if(!check_filename((char *)args[1])) {
       f->eax = 0;
-      return;
+      goto done;
     }
+    pin_frames(cur->mm.pagedir, (void *) args[1], 1);
 
     // Try to create the file. I don't really think I need to check the
     // initial size here...
     lock_acquire(&fs_lock);
     f->eax = filesys_create((char *) args[1], (off_t) args[2]);
     lock_release(&fs_lock);
-    return;
+    goto done;
     break;
   case SYS_REMOVE:
     break;
@@ -224,8 +278,10 @@ static void syscall_handler(struct intr_frame *f) {
       thread_exit();
     }
 
+    pin_frames(cur->mm.pagedir, (void *) args[1], 1);
+
     if (cur->nfiles == 128) {
-      return;
+      goto done;
     }
 
     // Try to open the file
@@ -234,7 +290,7 @@ static void syscall_handler(struct intr_frame *f) {
     lock_release(&fs_lock);
     if (ff == NULL) {
       // File couldn't be opened (for whatever reason)
-      return;
+      goto done;
     }
 
     // If there are 0 or 64 files open we need to allocate a new page
@@ -245,7 +301,7 @@ static void syscall_handler(struct intr_frame *f) {
         lock_acquire(&fs_lock);
         file_close(ff);
         lock_release(&fs_lock);
-        return;
+        goto done;
       }
     }
     if (cur->nfiles == 64) {
@@ -255,7 +311,7 @@ static void syscall_handler(struct intr_frame *f) {
         lock_acquire(&fs_lock);
         file_close(ff);
         lock_release(&fs_lock);
-        return;
+        goto done;
       }
     }
     
@@ -276,7 +332,7 @@ static void syscall_handler(struct intr_frame *f) {
     }
     
     cur->nfiles++;
-    return;
+    goto done;
     break;
 
   case SYS_FILESIZE:
@@ -289,7 +345,7 @@ static void syscall_handler(struct intr_frame *f) {
         lock_acquire(&fs_lock);
         f->eax = file_length(cur->files[0][i].f);
         lock_release(&fs_lock);
-        return;
+        goto done;
       }
     }
 
@@ -298,7 +354,7 @@ static void syscall_handler(struct intr_frame *f) {
         lock_acquire(&fs_lock);
         f->eax = file_length(cur->files[1][i].f);
         lock_release(&fs_lock);
-        return;
+        goto done;
       }
     }
     break;
@@ -313,6 +369,7 @@ static void syscall_handler(struct intr_frame *f) {
     // Verify the buffer
     check_array((void *) args[2], args[3]);
     check_write_array((void *) args[2], args[3]);
+    pin_frames(cur->mm.pagedir, (void *) args[2], args[3]);
 
     if (args[1] == 0) { // stdin
       for(i = 0; i < args[3]; ++i) {
@@ -320,7 +377,7 @@ static void syscall_handler(struct intr_frame *f) {
         // how would you detect EOF though? hmm.
       }
       f->eax = i;
-      return;
+      goto done;
     }
     else {
       // Find the file
@@ -329,7 +386,7 @@ static void syscall_handler(struct intr_frame *f) {
           lock_acquire(&fs_lock);
           f->eax = file_read(cur->files[0][i].f, (void *)args[2], args[3]);
           lock_release(&fs_lock);
-          return;
+          goto done;
         }
       }
       
@@ -338,7 +395,7 @@ static void syscall_handler(struct intr_frame *f) {
           lock_acquire(&fs_lock);
           f->eax = file_read(cur->files[1][i].f, (void *)args[2], args[3]);
           lock_release(&fs_lock);
-          return;
+          goto done;
         }
       }
     }
@@ -377,6 +434,7 @@ static void syscall_handler(struct intr_frame *f) {
     else {
       // Check whether the buffer is valid
       check_array((void *) args[2], args[3]);
+      pin_frames(cur->mm.pagedir, (void *) args[2], args[3]);
       
       // Find the file to write to
       for (i = 0; i < cur->nfiles && i < 64; ++i) {
@@ -385,7 +443,7 @@ static void syscall_handler(struct intr_frame *f) {
           lock_acquire(&fs_lock);
           f->eax = file_write(cur->files[0][i].f, (void *)args[2], args[3]);
           lock_release(&fs_lock);
-          return;
+          goto done;
         }
       }
       for (i = 0; i < cur->nfiles - 64; ++i) {
@@ -393,12 +451,12 @@ static void syscall_handler(struct intr_frame *f) {
           lock_acquire(&fs_lock);
           f->eax = file_write(cur->files[1][i].f, (void *)args[2], args[3]);
           lock_release(&fs_lock);
-          return;
+          goto done;
         }
       }
       // Invalid fd?
       f->eax = 0;
-      return;
+      goto done;
     }
     break;
 
@@ -411,7 +469,7 @@ static void syscall_handler(struct intr_frame *f) {
         lock_acquire(&fs_lock);
         file_seek(cur->files[0][i].f, args[2]);
         lock_release(&fs_lock);
-        return;
+        goto done;
       }
     }
 
@@ -420,7 +478,7 @@ static void syscall_handler(struct intr_frame *f) {
         lock_acquire(&fs_lock);
         file_seek(cur->files[1][i].f, args[2]);
         lock_release(&fs_lock);
-        return;
+        goto done;
       }
     }
     break;
@@ -432,7 +490,7 @@ static void syscall_handler(struct intr_frame *f) {
         lock_acquire(&fs_lock);
         f->eax = file_tell(cur->files[0][i].f);
         lock_release(&fs_lock);
-        return;
+        goto done;
       }
     }
 
@@ -441,7 +499,7 @@ static void syscall_handler(struct intr_frame *f) {
         lock_acquire(&fs_lock);
         f->eax = file_tell(cur->files[1][i].f);
         lock_release(&fs_lock);
-        return;
+        goto done;
       }
     }
     // Kill the thread :)
@@ -478,7 +536,7 @@ static void syscall_handler(struct intr_frame *f) {
             cur->files[1] = NULL;
           }
         }
-        return;
+        goto done;
       }
     }
 
@@ -497,7 +555,7 @@ static void syscall_handler(struct intr_frame *f) {
           cur->files[1][i].fd = cur->files[1][cur->nfiles-64].fd;
           cur->files[1][i].f = cur->files[1][cur->nfiles-64].f;
         }
-        return;
+        goto done;
       }
     }
 
@@ -507,6 +565,8 @@ static void syscall_handler(struct intr_frame *f) {
     printf("unrecognized system call\n");
     thread_exit();
   }
+done:
+  frame_for_each(unpin_func, NULL);
   return;
   //  printf("system call!\n");
   //  thread_exit();

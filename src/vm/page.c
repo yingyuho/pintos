@@ -3,9 +3,25 @@
 #include <debug.h>
 #include "threads/malloc.h"
 
+static inline uintptr_t upage_num(const struct hash_elem *e) {
+  return (uintptr_t) 
+  hash_entry(e, struct vm_page_struct, elem)->upage & PTE_ADDR;
+}
+
+static unsigned page_hash (const struct hash_elem *e, void *aux UNUSED) {
+  return hash_int(upage_num(e));
+}
+
+static bool page_less (const struct hash_elem *a, 
+                       const struct hash_elem *b, 
+                       void *aux UNUSED) {
+  return upage_num(a) < upage_num(b);
+}
+
 void mm_init(struct mm_struct *mm)
 {
   lock_init(&mm->mmap_lock_w);
+  lock_init(&mm->mmap_lock_pf);
 }
 
 struct vm_area_struct *mm_find(struct mm_struct * mm, uint8_t *addr)
@@ -32,6 +48,8 @@ void mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
   /* Set parent */
   vm->vm_mm = mm;
   vm->next = NULL;
+  // list_init(&vm->vm_locked_list);
+  hash_init(&vm->vm_page_table, page_hash, page_less, NULL);
 
   if (mm->mmap == NULL)
   {

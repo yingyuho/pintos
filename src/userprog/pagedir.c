@@ -14,6 +14,7 @@
 
 #ifdef VM
 #include "vm/frame.h"
+#include <stdio.h>
 #endif
 
 static uint32_t *active_pd(void);
@@ -29,21 +30,13 @@ uint32_t * pagedir_create(void) {
     return pd;
 }
 
+#ifdef VM
 static bool frame_free_page_func(struct frame_entry *f, void *aux) {
     uint32_t *pd = (uint32_t *) aux;
-    void *kpage;
 
-    if (f->pagedir == pd) {
-        kpage = pagedir_get_page(pd, f->upage);
-
-        if (kpage != NULL)
-            palloc_free_page(kpage);
-
-        return true;
-    }
-
-    return false;
+    return (f->pagedir == pd);
 }
+#endif
 
 /*! Destroys page directory PD, freeing all the pages it references. */
 void pagedir_destroy(uint32_t *pd) {
@@ -51,10 +44,12 @@ void pagedir_destroy(uint32_t *pd) {
         return;
 
     ASSERT(pd != init_page_dir);
+    uint32_t *pde;
+
 #ifdef VM
     frame_remove_if(frame_free_page_func, pd);
-#else
-    uint32_t *pde;
+    // frame_dump();
+#endif
 
     for (pde = pd; pde < pd + pd_no(PHYS_BASE); pde++)
     if (*pde & PTE_P) {
@@ -68,7 +63,7 @@ void pagedir_destroy(uint32_t *pd) {
         palloc_free_page(pt);
     }
     palloc_free_page(pd);
-#endif
+    // printf("destroy %x\n", (uintptr_t) pd);
 }
 
 /*! Returns the address of the page table entry for virtual address VADDR in
@@ -180,6 +175,7 @@ void pagedir_set_aux(uint32_t *pd, void *upage, uint32_t aux) {
 
     /* Store AUX while avoiding the last 3 bits */
     *pte = (*pte & mask) + (aux << 3);
+    invalidate_pagedir(pd);
 }
 
 /*! Retrieve auxiliary information from a non-present user virtual page. */

@@ -128,6 +128,13 @@ void process_exit(void) {
 
     /* Process termination message */
     printf ("%s: exit(%d)\n", cur->name, cur->exit_status);
+    // printf("exit mm = %x\n", (uintptr_t) &cur->mm);
+    // printf("exit pd = %x\n", (uintptr_t) cur->mm.pagedir);
+
+    // struct vm_area_struct *vma;
+    // for (vma = cur->mm.mmap; vma != NULL; vma = vma->next)
+    //   printf("start = %x, end = %x\n", 
+    //     (uintptr_t) vma->vm_start, (uintptr_t) vma->vm_end);
 
     /* Destroy the current process's page directory and switch back
        to the kernel-only page directory. */
@@ -435,8 +442,69 @@ static bool validate_segment(const struct Elf32_Phdr *phdr, struct file *file) {
 //static void vm_load_seg_open(struct vm_area_struct *area);
 //static void vm_load_seg_close(struct vm_area_struct *area);
 
-static bool evict_fifo(struct frame_entry *f UNUSED, void *aux UNUSED) {
-  return true;
+static bool evict_fifo(struct frame_entry *f, void *aux UNUSED) {
+  return !(f->flags & PG_LOCKED);
+}
+
+static void *vm_kpage(struct vm_page_struct **vmp_in_ptr)
+{
+  void *kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+  struct frame_entry f;
+  struct mm_struct *mm = &thread_current()->mm;
+
+  if (kpage == NULL)
+  {
+    if (!frame_pull(&f, evict_fifo, NULL))
+      PANIC("vm_kpage: cannot pull a frame");
+
+    // if (mm != f.vma->vm_mm)
+      // printf("vm_kpage: mmi = %x, mmo = %x\n", 
+      //   (uintptr_t) mm, (uintptr_t) f.vma->vm_mm);
+    // if (mm != f.vma->vm_mm)
+      // printf("vm_kpage: pdo = %x\n", (uintptr_t) f.pagedir);
+
+    uint32_t *pd_out = f.pagedir;
+    uint8_t *upage_out = f.upage;
+    kpage = pagedir_get_page(pd_out, upage_out);
+
+    // if (mm != f.vma->vm_mm)
+      // printf("vm_kpage: uo = %x\n", 
+      //   (uintptr_t) upage_out);
+
+    if (kpage == NULL) {
+      frame_dump();
+      ASSERT(kpage != NULL);
+    }
+
+    // if (mm != f.vma->vm_mm)
+    //   printf("fl = %x\n", f.flags);    
+
+    if (!(f.flags & PG_CODE)) {
+      size_t swap_out = swap_get();
+      swap_lock_acquire(swap_out);
+
+      (*vmp_in_ptr)->swap = swap_out;
+
+      // pagedir_set_aux(pd_out, upage_out, swap_out);
+      swap_write(swap_out, kpage);
+      swap_lock_release(swap_out);
+    } else {
+      (*vmp_in_ptr)->swap = 0;
+    }
+
+    (*vmp_in_ptr)->upage = upage_out;
+    (*vmp_in_ptr)->pte = 0;
+    struct hash_elem *e = hash_replace(&f.vma->vm_page_table, 
+                                       &(*vmp_in_ptr)->elem);
+
+    ASSERT(e != NULL);
+
+    (*vmp_in_ptr) = hash_entry(e, struct vm_page_struct, elem);
+
+    pagedir_clear_page(pd_out, upage_out);
+  }
+
+  return kpage;
 }
 
 static int32_t vm_load_seg_absent(struct vm_area_struct *vma, 
@@ -449,43 +517,41 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
 
   struct frame_entry f;
 
-  size_t swap_in = pagedir_get_aux(pd_in, upage_in);
+  struct vm_page_struct *vmp_in = malloc(sizeof(struct vm_page_struct));
 
-  kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+  kpage = vm_kpage(&vmp_in);
 
-  if (kpage == NULL)
-  {
-    if (!frame_pull(&f, evict_fifo, NULL))
-      PANIC("vm_load_seg_absent: cannot pull frame");
+  // printf("pdi = %x\n", (uintptr_t) pd_in);
 
-    uint32_t *pd_out = f.pagedir;
-    uint8_t *upage_out = f.upage;
-    kpage = pagedir_get_page(pd_out, upage_out);
+  // printf("ui = %x\n", (uintptr_t) upage_in);
 
-    if (kpage == NULL) {
-      frame_dump();
-      ASSERT(kpage != NULL);
-    }
-    
-    size_t swap_out = swap_get();
-    swap_write(swap_out, kpage);
+  frame_make(&f, vma, upage_in);
+  vmp_in->upage = upage_in;
+  vmp_in->swap = 0;
 
-    // printf("vm_load_seg_absent: evict pd = %x, up = %x to sw = %x\n",
-    //        pd_out, upage_out, swap_out);
+  vmp_in->pte = (uintptr_t) kpage | PTE_P | PTE_U;
+  if (vma->vm_flags & VM_WRITE) vmp_in->pte |= PTE_W;
 
-    /* This also clears the present bit */
-    pagedir_set_aux(pd_out, upage_out, swap_out);
-    /* Call invalidate_pagedir(pd_w) */
-    pagedir_clear_page(pd_out, upage_out);
+  struct hash_elem *e = hash_replace(&vma->vm_page_table, &vmp_in->elem);
+
+  size_t swap_in = 0;
+
+  if (e != NULL) {
+    vmp_in = hash_entry(e, struct vm_page_struct, elem);
+    swap_in = vmp_in->swap;
+    free(vmp_in);
   }
 
-  frame_make(&f, vma->vm_mm, upage_in);
+  /* Pin the new frame for kerkel PF */
+  if (!vmf->user)
+    frame_entry_pin(&f);
 
   if (swap_in != 0)
   {
+    swap_lock_acquire(swap_in);
     swap_read(swap_in, kpage);
+    swap_lock_release(swap_in);
     swap_free(swap_in);
-    // printf("vm_load_seg_absent: read sr = %x\n", swap_in);
   }
   else
   {
@@ -495,12 +561,9 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
     read_bytes = (read_bytes < 0) ? 0 : read_bytes;
     read_bytes = (read_bytes > PGSIZE) ? PGSIZE : read_bytes;
 
-    int actual_read_bytes = 0;
-
     if (read_bytes)
     {
-      actual_read_bytes = 
-          file_read_at(vma->vm_file, kpage, read_bytes, offset);
+      file_read_at(vma->vm_file, kpage, read_bytes, offset);
     }
   }
 
@@ -521,46 +584,41 @@ static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED,
 
   struct frame_entry f;
 
-  size_t swap_in = pagedir_get_aux(pd_in, upage_in);
+  struct vm_page_struct *vmp_in = malloc(sizeof(struct vm_page_struct));
 
-  kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+  kpage = vm_kpage(&vmp_in);
 
-  if (kpage == NULL)
-  {
-    if (!frame_pull(&f, evict_fifo, NULL))
-      PANIC("vm_stack_absent: cannot pull frame");
+  frame_make(&f, vma, upage_in);
+  vmp_in->upage = upage_in;
+  vmp_in->swap = 0;
 
-    uint32_t *pd_out = f.pagedir;
-    uint8_t *upage_out = f.upage;
-    kpage = pagedir_get_page(pd_out, upage_out);
+  vmp_in->pte = (uintptr_t) kpage | PTE_P | PTE_W | PTE_U;
 
-    if (kpage == NULL) {
-      frame_dump();
-      ASSERT(kpage != NULL);
-    }
-    
-    size_t swap_out = swap_get();
-    swap_write(swap_out, kpage);
+  struct hash_elem *e = hash_replace(&vma->vm_page_table, &vmp_in->elem);
 
-    // printf("vm_stack_absent: evict pd = %x, up = %x to sw = %x\n",
-    //        pd_out, upage_out, swap_out);
+  size_t swap_in = 0;
 
-    /* This also clears the present bit */
-    pagedir_set_aux(pd_out, upage_out, swap_out);
-    /* Call invalidate_pagedir(pd_w) */
-    pagedir_clear_page(pd_out, upage_out);
+  if (e != NULL) {
+    vmp_in = hash_entry(e, struct vm_page_struct, elem);
+    swap_in = vmp_in->swap;
+    free(vmp_in);
   }
 
-  frame_make(&f, vma->vm_mm, upage_in);
+  /* Pin the new frame for kerkel PF */
+  if (!vmf->user)
+    frame_entry_pin(&f);
 
   if (swap_in != 0)
   {
+    swap_lock_acquire(swap_in);
     swap_read(swap_in, kpage);
+    swap_lock_release(swap_in);
     swap_free(swap_in);
-    // printf("vm_stack_absent: read sr = %x\n", swap_in);
   }
 
   bool success = install_page(upage_in, kpage, true);
+
+  frame_push(&f);
 
   return success;
 }
@@ -607,6 +665,8 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
     vma->vm_file_read_bytes = read_bytes;
     vma->vm_file_zero_bytes = zero_bytes;
     mm_insert_vm_area(mm, vma);
+    // printf("load mm = %x\n", (uintptr_t) mm);
+    // printf("load pd = %x\n", (uintptr_t) mm->pagedir);
 #else /* no-VM */
     file_seek(file, ofs);
     while (read_bytes > 0 || zero_bytes > 0) {
