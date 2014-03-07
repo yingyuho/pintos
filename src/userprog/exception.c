@@ -220,6 +220,12 @@ static void page_fault(struct intr_frame *f) {
     if (!not_present)
       thread_exit();
 
+    // struct vm_area_struct *vma;
+
+    // for (vma = thread_current()->mm.mmap; vma != NULL; vma = vma->next)
+    //   printf("start = %x, end = %x\n", 
+    //     (uintptr_t) vma->vm_start, (uintptr_t) vma->vm_end);
+
     printf("Page fault at %p: %s error %s page in %s context.\n",
            fault_addr,
            not_present ? "not present" : "rights violation",

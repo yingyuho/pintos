@@ -22,6 +22,7 @@
 #include "threads/malloc.h"
 #include "vm/frame.h"
 #include "vm/page.h"
+#include "vm/swap.h"
 #endif
 
 //#define PROCESS_C_DEBUG
@@ -437,27 +438,76 @@ static bool validate_segment(const struct Elf32_Phdr *phdr, struct file *file) {
 static int32_t vm_load_seg_absent(struct vm_area_struct *vma, 
                                   struct vm_fault *vmf)
 {
-  uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
   uint8_t *kpage;
+  uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
+  uint32_t *pd_r = vma->vm_mm->pagedir;
 
-  off_t offset = vma->vm_file_ofs + vmf->page_ofs;
+  size_t swap_r = pagedir_get_aux(pd_r, upage);
 
-  int read_bytes = vma->vm_file_read_bytes - vmf->page_ofs;
-  read_bytes = (read_bytes < 0) ? 0 : read_bytes;
-  read_bytes = (read_bytes > PGSIZE) ? PGSIZE : read_bytes;
+  kpage = frame_get_page(vma->vm_mm, upage, PAL_USER);
 
-  int actual_read_bytes = 0;
-
-  if (read_bytes)
+  if (kpage == NULL)
   {
-    kpage = frame_get_page(vma->vm_mm, upage, PAL_USER);
-    actual_read_bytes = 
-        file_read_at(vma->vm_file, kpage, read_bytes, offset);
-    memset(kpage + actual_read_bytes, 0, PGSIZE - actual_read_bytes);
+    // printf("vm_load_seg_absent: OOF\n");
+    struct frame_entry *f = frame_clock_step();
+
+    uint32_t *pd_w = f->pagedir;
+    uint8_t *upage_w = f->upage;
+
+    // printf("vm_load_seg_absent: evict pd = %x, up = %x\n",
+           // pd_w, upage_w);
+
+    kpage = pagedir_get_page(pd_w, upage_w);
+
+    if (kpage == NULL) {
+      frame_dump();
+      ASSERT(kpage != NULL);
+    }
+
+    size_t swap_w = swap_get();
+    swap_write(swap_w, kpage);
+
+    // printf("vm_load_seg_absent: to sw = %x\n", swap_w);
+
+    frame_entry_pin(f);
+
+    /* This also clears the present bit */
+    pagedir_set_aux(pd_w, upage_w, swap_w);
+    /* Call invalidate_pagedir(pd_w) */
+    pagedir_clear_page(pd_w, upage_w);
+
+    frame_entry_replace(f, vma->vm_mm, upage);
+
+    frame_entry_unpin(f);
+    // printf("vm_load_seg_absent: kp = %x\n", kpage);
+  }
+
+  if (swap_r != 0)
+  {
+    swap_read(swap_r, kpage);
+    swap_free(swap_r);
+    // printf("sr = %x\n", swap_r);
   }
   else
   {
-    kpage = frame_get_page(vma->vm_mm, upage, PAL_USER | PAL_ZERO);
+    off_t offset = vma->vm_file_ofs + vmf->page_ofs;
+
+    int read_bytes = vma->vm_file_read_bytes - vmf->page_ofs;
+    read_bytes = (read_bytes < 0) ? 0 : read_bytes;
+    read_bytes = (read_bytes > PGSIZE) ? PGSIZE : read_bytes;
+
+    int actual_read_bytes = 0;
+
+    if (read_bytes)
+    {
+      actual_read_bytes = 
+          file_read_at(vma->vm_file, kpage, read_bytes, offset);
+      memset(kpage + actual_read_bytes, 0, PGSIZE - actual_read_bytes);
+    }
+    else
+    {
+      memset(kpage, 0, PGSIZE);
+    }
   }
 
   return install_page(upage, kpage, vma->vm_flags & VM_WRITE);
@@ -550,10 +600,52 @@ static inline char* kpage_to_phys(char *kpage, char *ptr) {
 static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED, 
                                struct vm_fault *vmf)
 {
+  uint8_t *kpage;
   uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
-  uint8_t *kpage = frame_get_page(vma->vm_mm, upage, PAL_USER | PAL_ZERO);
+  uint32_t *pd_r = vma->vm_mm->pagedir;
 
-  return install_page(upage, kpage, true);
+  size_t swap_r = pagedir_get_aux(pd_r, upage);
+
+  if (swap_r == 0)
+    kpage = frame_get_page(vma->vm_mm, upage, PAL_USER | PAL_ZERO);
+  else
+    kpage = frame_get_page(vma->vm_mm, upage, PAL_USER);
+
+  if (kpage == NULL)
+  {
+    struct frame_entry *f = frame_clock_step();
+    frame_entry_pin(f);
+
+    uint32_t *pd_w = f->pagedir;
+    uint8_t *upage_w = f->upage;
+    kpage = pagedir_get_page(pd_w, upage_w);
+
+    if (kpage == NULL) {
+      frame_dump();
+      ASSERT(kpage != NULL);
+    }
+    
+    size_t swap_w = swap_get();
+    swap_write(swap_w, kpage);
+
+    /* This also clears the present bit */
+    pagedir_set_aux(pd_w, upage_w, swap_w);
+    /* Call invalidate_pagedir(pd_w) */
+    pagedir_clear_page(pd_w, upage_w);
+
+    if (swap_r == 0)
+      memset(kpage, 0, PGSIZE);
+    else
+      swap_read(swap_r, kpage);
+
+    frame_entry_replace(f, vma->vm_mm, upage);
+
+    frame_entry_unpin(f);
+  }
+
+  bool success = install_page(upage, kpage, true);
+
+  return success;
 }
 
 static struct vm_operations_struct vm_stack_ops = 

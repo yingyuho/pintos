@@ -2,6 +2,7 @@
 
 #include <debug.h>
 #include <bitmap.h>
+#include <stdio.h>
 #include "threads/pte.h"
 #include "threads/synch.h"
 
@@ -11,8 +12,8 @@ static struct bitmap *swap_bitmap;
 static size_t swap_size;
 
 /* PGSIZE = 4096, BLOCK_SECTOR_SIZE = 512 */
-#define TO_SECTOR(slot) slot   * (PGSIZE / BLOCK_SECTOR_SIZE)
-#define TO_SLOT(sector) sector / (PGSIZE / BLOCK_SECTOR_SIZE)
+#define TO_SECTOR(slot) (slot)   * (PGSIZE / BLOCK_SECTOR_SIZE)
+#define TO_SLOT(sector) (sector) / (PGSIZE / BLOCK_SECTOR_SIZE)
 
 void swap_init(void)
 {
@@ -29,34 +30,52 @@ void swap_init(void)
 
     lock_init(&swap_lock);
     swap_size = TO_SLOT(swap_sectors);
-    swap_bitmap = bitmap_create(swap_size); 
+    swap_bitmap = bitmap_create(swap_size);
+
+    /* 0-th is reserved to keep unused */
+    bitmap_mark(swap_bitmap, 0);
 }
 
 size_t swap_get() {
-    block_sector_t sector;
+    size_t idx;
 
     lock_acquire(&swap_lock);
-    sector = bitmap_scan_and_flip(swap_bitmap, 0, 1, false);
+    idx = bitmap_scan_and_flip(swap_bitmap, 0, 1, false);
     lock_release(&swap_lock);
 
-    if (sector == BITMAP_ERROR)
+    if (idx == BITMAP_ERROR)
         PANIC("swap_get: out of swap slots");
     else
-        return TO_SLOT(sector);
+        return idx;
 }
 
 void swap_free(size_t idx) {
-    const block_sector_t sector = TO_SECTOR(idx);
-    ASSERT(bitmap_all(swap_bitmap, sector, 1));
-    bitmap_reset(swap_bitmap, sector);
+    ASSERT(bitmap_all(swap_bitmap, idx, 1));
+    bitmap_reset(swap_bitmap, idx);
 }
 
-void swap_read(size_t idx, void *buffer) {
+void swap_read(size_t idx, void *kpage) {
     ASSERT(idx < swap_size);
-    block_read(swap_block, TO_SECTOR(idx), buffer);
+
+    uint8_t *ptr = kpage;
+    block_sector_t sector;
+
+    for (sector = TO_SECTOR(idx); sector < TO_SECTOR(idx + 1); ++sector)
+    {
+        block_read(swap_block, sector, ptr);
+        ptr += BLOCK_SECTOR_SIZE;
+    }
 }
 
-void swap_write(size_t idx, const void *buffer) {
+void swap_write(size_t idx, const void *kpage) {
     ASSERT(idx < swap_size);
-    block_write(swap_block, TO_SECTOR(idx), buffer);
+
+    const uint8_t *ptr = kpage;
+    block_sector_t sector;
+
+    for (sector = TO_SECTOR(idx); sector < TO_SECTOR(idx + 1); ++sector)
+    {
+        block_write(swap_block, sector, ptr);
+        ptr += BLOCK_SECTOR_SIZE;
+    }
 }

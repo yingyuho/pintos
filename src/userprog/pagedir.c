@@ -149,41 +149,38 @@ void pagedir_clear_page(uint32_t *pd, void *upage) {
     }
 }
 
-/*! Store auxiliary information into a non-present user virtual page. 
-    The last 3 bits (PTE_P, PTE_W, PTE_U) of AUX must be 0 */
+/*! Clear a user virtual page and store auxiliary information in it. 
+    The top 3 bits of AUX are ignored */
 void pagedir_set_aux(uint32_t *pd, void *upage, uint32_t aux) {
     uint32_t *pte;
-    const uint32_t mask = PTE_P | PTE_W | PTE_U;
+    const uint32_t mask = PTE_W | PTE_U;
 
-    ASSERT((aux & mask) == 0);
     ASSERT(pg_ofs(upage) == 0);
     ASSERT(is_user_vaddr(upage));
 
     pte = lookup_page(pd, upage, false);
 
     ASSERT(pte != NULL);
-    ASSERT((*pte & PTE_P) == 0);
 
-    /* Retain only the last 3 bits */
-    *pte &= mask;
-    /* Store AUX */
-    *pte |= aux;
+    /* Store AUX while avoiding the last 3 bits */
+    *pte = (*pte & mask) + (aux << 3);
 }
 
-/*! Retrieve auxiliary information into a non-present user virtual page. */
+/*! Retrieve auxiliary information from a non-present user virtual page. */
 uint32_t pagedir_get_aux(uint32_t *pd, void *upage) {
     uint32_t *pte;
-    const uint32_t mask = PTE_P | PTE_W | PTE_U;
 
     ASSERT(pg_ofs(upage) == 0);
     ASSERT(is_user_vaddr(upage));
 
     pte = lookup_page(pd, upage, false);
 
-    ASSERT(pte != NULL);
+    if (pte == NULL)
+        return 0;
+
     ASSERT((*pte & PTE_P) == 0);
 
-    return *pte & ~mask;
+    return (*pte >> 3);
 }
 
 /*! Returns true if the PTE for virtual page VPAGE in PD is dirty, that is, if

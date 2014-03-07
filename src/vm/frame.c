@@ -22,9 +22,12 @@ static size_t table_size;
 /* A lock protecting frame_table */
 static struct lock table_lock;
 
-void frame_entry_replace(struct frame_entry * f, uint32_t *pd, void *upage)
+void frame_entry_replace(struct frame_entry * f, 
+                         struct mm_struct * mm, 
+                         void *upage)
 {
-  f->pagedir = pd;
+  f->mm = mm;
+  f->pagedir = mm->pagedir;
   f->upage = upage;
 }
 
@@ -53,17 +56,34 @@ static inline size_t *prev(size_t i) {
 }
 
 static inline size_t *next(size_t i) {
-  return &frame_table[i].prev;
+  return &frame_table[i].next;
 }
+
+// void frame_lock(void) {
+//   lock_acquire(&table_lock);
+// }
+
+// void frame_unlock (void) {
+//   lock_release(&table_lock);
+// }
 
 struct frame_entry *frame_clock_hand(void) {
   return (clock_hand == CLOCK_HAND_NONE) ? NULL : &frame_table[clock_hand];
 }
 
-void frame_clock_advance(void) {
+struct frame_entry *frame_clock_step(void) {
+  struct frame_entry *f;
+
   lock_acquire(&table_lock);
-  clock_hand = *next(clock_hand);
+
+  do {
+    f = &frame_table[clock_hand];
+    clock_hand = *next(clock_hand);
+  } while (f->flags & FRAME_PIN);
+
   lock_release(&table_lock);
+
+  return f;
 }
 
 void *frame_get_page(struct mm_struct *mm, 
@@ -82,6 +102,7 @@ void *frame_get_page(struct mm_struct *mm,
     f->mm = mm;
     f->pagedir = mm->pagedir;
     f->upage = upage;
+    f->flags = 0;
 
     if (table_size > 0) {
       /* Insert frame just before clock_hand */
@@ -97,6 +118,8 @@ void *frame_get_page(struct mm_struct *mm,
 
     lock_release(&table_lock);
   }
+  // if (!kpage)
+  //   frame_dump();
 
   return kpage;
 }
@@ -137,6 +160,23 @@ static void free_index(size_t i)
   }
 }
 
+void frame_dump(void)
+{
+  size_t i;
+  lock_acquire(&table_lock);
+  printf("clock_hand = %x\n", clock_hand);
+  for (i = 0; i < table_size; i++)
+  {
+    printf("%x: %x <- pd = %x, up = %x -> %x\n",
+      i, 
+      *prev(i), 
+      (uintptr_t) frame_table[i].pagedir, 
+      (uintptr_t) frame_table[i].upage, 
+      *next(i));
+  }
+  lock_release(&table_lock);
+}
+
 void frame_free_pagedir(uint32_t *pd)
 {
   void *kpage;
@@ -144,7 +184,8 @@ void frame_free_pagedir(uint32_t *pd)
   lock_acquire(&table_lock);
   /* Locate all pages under PD in the frame table */
   for (i = 0; i < table_size; i++)
-  if (frame_table[i].pagedir == pd)
+  if (frame_table[i].pagedir == pd && 
+      !(frame_table[i].flags | FRAME_PIN))
   {
     kpage = pagedir_get_page(pd, frame_table[i].upage);
 
@@ -197,4 +238,14 @@ void frame_free_page(uint32_t *pd, void *upage)
   {
     NOT_REACHED();
   }
+}
+
+void frame_entry_pin(struct frame_entry* f) {
+  ASSERT((f->flags & FRAME_PIN) == 0);
+  f->flags |= FRAME_PIN;
+}
+
+void frame_entry_unpin (struct frame_entry* f) {
+  ASSERT((f->flags & FRAME_PIN) != 0);
+  f->flags &= ~FRAME_PIN;
 }
