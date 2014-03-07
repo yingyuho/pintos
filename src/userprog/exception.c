@@ -217,8 +217,8 @@ static void page_fault(struct intr_frame *f) {
       return;
     }
 
-    if (!not_present)
-      thread_exit();
+    // if (!not_present)
+    //   thread_exit();
 
     // struct vm_area_struct *vma;
 

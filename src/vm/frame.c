@@ -3,6 +3,7 @@
 #include <list.h>
 #include <string.h>
 #include <round.h>
+#include <stdio.h>
 #include "threads/malloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
@@ -22,13 +23,90 @@ static size_t table_size;
 /* A lock protecting frame_table */
 static struct lock table_lock;
 
-void frame_entry_replace(struct frame_entry * f, 
-                         struct mm_struct * mm, 
-                         void *upage)
+static inline size_t *prev(size_t i) {
+  return &frame_table[i].prev;
+}
+
+static inline size_t *next(size_t i) {
+  return &frame_table[i].next;
+}
+
+static void free_index(size_t i);
+
+void frame_make(struct frame_entry *f, 
+                struct mm_struct *mm, 
+                void *upage)
 {
   f->mm = mm;
   f->pagedir = mm->pagedir;
   f->upage = upage;
+  f->flags = 0;
+}
+
+void frame_push(struct frame_entry *f)
+{
+    lock_acquire(&table_lock);
+
+    frame_table[table_size] = *f;
+    f = frame_table + table_size;
+
+    if (table_size > 0) {
+      /* Insert frame just before clock_hand */
+      f->prev = *prev(clock_hand);
+      f->next = clock_hand;
+      *next(f->prev) = table_size;
+      *prev(f->next) = table_size;
+    } else {
+      f->prev = f->next = clock_hand = 0;
+    }
+
+    ++table_size;
+
+    lock_release(&table_lock);
+}
+
+bool frame_pull(struct frame_entry *f, frame_func *func, void *aux)
+{
+  size_t i;
+  size_t count;
+
+  lock_acquire(&table_lock);
+
+  count = table_size;
+
+  if (count == 0) {
+    lock_release(&table_lock);
+    return false;
+  }
+
+  do {
+    i = clock_hand;
+    clock_hand = *next(clock_hand);
+  } while (!func(&frame_table[i], aux) && --count > 0);
+
+  bool success = (count > 0) || func(&frame_table[i], aux);
+
+  if (success) {
+    *f = frame_table[i];
+    free_index(i);
+  }
+
+  lock_release(&table_lock);
+
+  return success;
+}
+
+void frame_remove_if(frame_func *func, void *aux)
+{
+  size_t i;
+
+  lock_acquire(&table_lock);
+
+  for (i = 0; i < table_size; i++)
+    if (func(&frame_table[i], aux))
+      free_index(i);
+
+  lock_release(&table_lock);
 }
 
 void frame_init(size_t user_page_limit) {
@@ -51,79 +129,6 @@ void frame_init(size_t user_page_limit) {
   clock_hand = CLOCK_HAND_NONE;
 }
 
-static inline size_t *prev(size_t i) {
-  return &frame_table[i].prev;
-}
-
-static inline size_t *next(size_t i) {
-  return &frame_table[i].next;
-}
-
-// void frame_lock(void) {
-//   lock_acquire(&table_lock);
-// }
-
-// void frame_unlock (void) {
-//   lock_release(&table_lock);
-// }
-
-struct frame_entry *frame_clock_hand(void) {
-  return (clock_hand == CLOCK_HAND_NONE) ? NULL : &frame_table[clock_hand];
-}
-
-struct frame_entry *frame_clock_step(void) {
-  struct frame_entry *f;
-
-  lock_acquire(&table_lock);
-
-  do {
-    f = &frame_table[clock_hand];
-    clock_hand = *next(clock_hand);
-  } while (f->flags & FRAME_PIN);
-
-  lock_release(&table_lock);
-
-  return f;
-}
-
-void *frame_get_page(struct mm_struct *mm, 
-                     void *upage, 
-                     enum palloc_flags flags)
-{
-  void *kpage = palloc_get_page(flags);
-  struct frame_entry *f;
-
-  /* Skip for kernel page or out of pages */
-  if ((kpage != NULL) && (flags & PAL_USER)) {
-    lock_acquire(&table_lock);
-
-    f = frame_table + table_size;
-
-    f->mm = mm;
-    f->pagedir = mm->pagedir;
-    f->upage = upage;
-    f->flags = 0;
-
-    if (table_size > 0) {
-      /* Insert frame just before clock_hand */
-      f->prev = *prev(clock_hand);
-      f->next = clock_hand;
-      *next(f->prev) = table_size;
-      *prev(f->next) = table_size;
-    } else {
-      f->prev = f->next = clock_hand = 0;
-    }
-
-    ++table_size;
-
-    lock_release(&table_lock);
-  }
-  // if (!kpage)
-  //   frame_dump();
-
-  return kpage;
-}
-
 static void free_index(size_t i)
 {
   --table_size;
@@ -139,6 +144,7 @@ static void free_index(size_t i)
       clock_hand = *next(clock_hand);
 
     /* Remove frame_table[i] from the circular list */
+
     *next(*prev(i)) = *next(i);
     *prev(*next(i)) = *prev(i);
 
@@ -156,7 +162,7 @@ static void free_index(size_t i)
     }
 
     /* Fill 0xcc to frame_table[table_size] to make debugging easier */
-    memset(frame_table + table_size, 0xcc, sizeof(struct frame_entry));
+    memset(frame_table + table_size, 0xaa, sizeof(struct frame_entry));
   }
 }
 
@@ -175,77 +181,4 @@ void frame_dump(void)
       *next(i));
   }
   lock_release(&table_lock);
-}
-
-void frame_free_pagedir(uint32_t *pd)
-{
-  void *kpage;
-  size_t i;
-  lock_acquire(&table_lock);
-  /* Locate all pages under PD in the frame table */
-  for (i = 0; i < table_size; i++)
-  if (frame_table[i].pagedir == pd && 
-      !(frame_table[i].flags | FRAME_PIN))
-  {
-    kpage = pagedir_get_page(pd, frame_table[i].upage);
-
-    if (kpage != NULL)
-      palloc_free_page(kpage);
-
-    free_index(i);
-  }
-  lock_release(&table_lock);
-}
-
-void frame_free_page(uint32_t *pd, void *upage)
-{
-  void *kpage = pagedir_get_page(pd, upage);
-
-  if (kpage == NULL)
-    PANIC(
-      "frame_free_page: cannot find (pd = %x, upage = %x) in frame table", 
-      (uintptr_t) pd, (uintptr_t) upage);
-
-  if (palloc_from_user(kpage))
-  {
-    size_t i;
-
-    palloc_free_page(kpage);
-
-    lock_acquire(&table_lock);
-
-    /* Locate the page in the frame table */
-    /* TODO: Use hash table? */
-    for (i = 0; i < table_size; i++) {
-      if (frame_table[i].pagedir == pd && frame_table[i].upage == upage)
-        break;
-    }
-
-    if (i >= table_size)
-      PANIC(
-        "frame_free_page: cannot find (pd = %x, upage = %x) in frame table", 
-        (uintptr_t) pd, (uintptr_t) upage);
-
-    free_index(i);
-
-    lock_release(&table_lock);
-  }
-  else if (palloc_from_kernel(kpage))
-  {
-    palloc_free_page(kpage);
-  }
-  else
-  {
-    NOT_REACHED();
-  }
-}
-
-void frame_entry_pin(struct frame_entry* f) {
-  ASSERT((f->flags & FRAME_PIN) == 0);
-  f->flags |= FRAME_PIN;
-}
-
-void frame_entry_unpin (struct frame_entry* f) {
-  ASSERT((f->flags & FRAME_PIN) != 0);
-  f->flags &= ~FRAME_PIN;
 }

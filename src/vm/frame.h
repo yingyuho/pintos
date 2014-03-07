@@ -30,27 +30,17 @@ struct frame_entry
 
 void frame_init(size_t user_page_limit);
 
-void *frame_get_page (struct mm_struct *mm, void *upage, enum palloc_flags);
+void frame_make (struct frame_entry *, struct mm_struct *mm, void *upage);
 
-void frame_free_page (uint32_t *pd, void *upage);
+void frame_push (struct frame_entry *);
 
-void frame_free_pagedir (uint32_t *pd);
+/*! Selector of frame to evict. */
+typedef bool frame_func (struct frame_entry *, void *aux);
 
-struct frame_entry *frame_clock_hand (void);
+bool frame_pull (struct frame_entry *, frame_func *, void *aux);
 
-struct frame_entry *frame_clock_step (void);
-
-void frame_entry_replace (struct frame_entry *, 
-                          struct mm_struct *, 
-                          void *upage);
-
-void frame_entry_pin (struct frame_entry*);
-void frame_entry_unpin (struct frame_entry*);
+void frame_remove_if (frame_func *, void *aux);
 
 void frame_dump (void);
-
-// void frame_lock (void);
-
-// void frame_unlock (void);
 
 #endif /* vm/frame.h */

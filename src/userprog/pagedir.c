@@ -29,6 +29,22 @@ uint32_t * pagedir_create(void) {
     return pd;
 }
 
+static bool frame_free_page_func(struct frame_entry *f, void *aux) {
+    uint32_t *pd = (uint32_t *) aux;
+    void *kpage;
+
+    if (f->pagedir == pd) {
+        kpage = pagedir_get_page(pd, f->upage);
+
+        if (kpage != NULL)
+            palloc_free_page(kpage);
+
+        return true;
+    }
+
+    return false;
+}
+
 /*! Destroys page directory PD, freeing all the pages it references. */
 void pagedir_destroy(uint32_t *pd) {
     if (pd == NULL)
@@ -36,7 +52,7 @@ void pagedir_destroy(uint32_t *pd) {
 
     ASSERT(pd != init_page_dir);
 #ifdef VM
-    frame_free_pagedir(pd);
+    frame_remove_if(frame_free_page_func, pd);
 #else
     uint32_t *pde;
 

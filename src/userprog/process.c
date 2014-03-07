@@ -435,58 +435,57 @@ static bool validate_segment(const struct Elf32_Phdr *phdr, struct file *file) {
 //static void vm_load_seg_open(struct vm_area_struct *area);
 //static void vm_load_seg_close(struct vm_area_struct *area);
 
+static bool evict_fifo(struct frame_entry *f UNUSED, void *aux UNUSED) {
+  return true;
+}
+
 static int32_t vm_load_seg_absent(struct vm_area_struct *vma, 
                                   struct vm_fault *vmf)
 {
   uint8_t *kpage;
-  uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
-  uint32_t *pd_r = vma->vm_mm->pagedir;
+  uint8_t *upage_in = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
+  struct mm_struct *mm = vma->vm_mm;
+  uint32_t *pd_in = mm->pagedir;
 
-  size_t swap_r = pagedir_get_aux(pd_r, upage);
+  struct frame_entry f;
 
-  kpage = frame_get_page(vma->vm_mm, upage, PAL_USER);
+  size_t swap_in = pagedir_get_aux(pd_in, upage_in);
+
+  kpage = palloc_get_page(PAL_USER | PAL_ZERO);
 
   if (kpage == NULL)
   {
-    // printf("vm_load_seg_absent: OOF\n");
-    struct frame_entry *f = frame_clock_step();
+    if (!frame_pull(&f, evict_fifo, NULL))
+      PANIC("vm_load_seg_absent: cannot pull frame");
 
-    uint32_t *pd_w = f->pagedir;
-    uint8_t *upage_w = f->upage;
-
-    // printf("vm_load_seg_absent: evict pd = %x, up = %x\n",
-           // pd_w, upage_w);
-
-    kpage = pagedir_get_page(pd_w, upage_w);
+    uint32_t *pd_out = f.pagedir;
+    uint8_t *upage_out = f.upage;
+    kpage = pagedir_get_page(pd_out, upage_out);
 
     if (kpage == NULL) {
       frame_dump();
       ASSERT(kpage != NULL);
     }
+    
+    size_t swap_out = swap_get();
+    swap_write(swap_out, kpage);
 
-    size_t swap_w = swap_get();
-    swap_write(swap_w, kpage);
-
-    // printf("vm_load_seg_absent: to sw = %x\n", swap_w);
-
-    frame_entry_pin(f);
+    // printf("vm_load_seg_absent: evict pd = %x, up = %x to sw = %x\n",
+    //        pd_out, upage_out, swap_out);
 
     /* This also clears the present bit */
-    pagedir_set_aux(pd_w, upage_w, swap_w);
+    pagedir_set_aux(pd_out, upage_out, swap_out);
     /* Call invalidate_pagedir(pd_w) */
-    pagedir_clear_page(pd_w, upage_w);
-
-    frame_entry_replace(f, vma->vm_mm, upage);
-
-    frame_entry_unpin(f);
-    // printf("vm_load_seg_absent: kp = %x\n", kpage);
+    pagedir_clear_page(pd_out, upage_out);
   }
 
-  if (swap_r != 0)
+  frame_make(&f, vma->vm_mm, upage_in);
+
+  if (swap_in != 0)
   {
-    swap_read(swap_r, kpage);
-    swap_free(swap_r);
-    // printf("sr = %x\n", swap_r);
+    swap_read(swap_in, kpage);
+    swap_free(swap_in);
+    // printf("vm_load_seg_absent: read sr = %x\n", swap_in);
   }
   else
   {
@@ -502,16 +501,72 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
     {
       actual_read_bytes = 
           file_read_at(vma->vm_file, kpage, read_bytes, offset);
-      memset(kpage + actual_read_bytes, 0, PGSIZE - actual_read_bytes);
-    }
-    else
-    {
-      memset(kpage, 0, PGSIZE);
     }
   }
 
-  return install_page(upage, kpage, vma->vm_flags & VM_WRITE);
+  bool success = install_page(upage_in, kpage, vma->vm_flags & VM_WRITE);
+
+  frame_push(&f);
+
+  return success;
 }
+
+static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED, 
+                               struct vm_fault *vmf)
+{
+  uint8_t *kpage;
+  uint8_t *upage_in = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
+  struct mm_struct *mm = vma->vm_mm;
+  uint32_t *pd_in = mm->pagedir;
+
+  struct frame_entry f;
+
+  size_t swap_in = pagedir_get_aux(pd_in, upage_in);
+
+  kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+
+  if (kpage == NULL)
+  {
+    if (!frame_pull(&f, evict_fifo, NULL))
+      PANIC("vm_stack_absent: cannot pull frame");
+
+    uint32_t *pd_out = f.pagedir;
+    uint8_t *upage_out = f.upage;
+    kpage = pagedir_get_page(pd_out, upage_out);
+
+    if (kpage == NULL) {
+      frame_dump();
+      ASSERT(kpage != NULL);
+    }
+    
+    size_t swap_out = swap_get();
+    swap_write(swap_out, kpage);
+
+    // printf("vm_stack_absent: evict pd = %x, up = %x to sw = %x\n",
+    //        pd_out, upage_out, swap_out);
+
+    /* This also clears the present bit */
+    pagedir_set_aux(pd_out, upage_out, swap_out);
+    /* Call invalidate_pagedir(pd_w) */
+    pagedir_clear_page(pd_out, upage_out);
+  }
+
+  frame_make(&f, vma->vm_mm, upage_in);
+
+  if (swap_in != 0)
+  {
+    swap_read(swap_in, kpage);
+    swap_free(swap_in);
+    // printf("vm_stack_absent: read sr = %x\n", swap_in);
+  }
+
+  bool success = install_page(upage_in, kpage, true);
+
+  return success;
+}
+
+static struct vm_operations_struct vm_stack_ops = 
+  { .open = NULL, .close = NULL, .absent = vm_stack_absent };
 
 static struct vm_operations_struct vm_load_seg_ops = 
   { .open = NULL, .close = NULL, .absent = vm_load_seg_absent };
@@ -594,64 +649,6 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
 static inline char* kpage_to_phys(char *kpage, char *ptr) {
   return PHYS_BASE + (ptr - kpage - PGSIZE); 
 }
-
-#ifdef VM
-
-static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED, 
-                               struct vm_fault *vmf)
-{
-  uint8_t *kpage;
-  uint8_t *upage = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
-  uint32_t *pd_r = vma->vm_mm->pagedir;
-
-  size_t swap_r = pagedir_get_aux(pd_r, upage);
-
-  if (swap_r == 0)
-    kpage = frame_get_page(vma->vm_mm, upage, PAL_USER | PAL_ZERO);
-  else
-    kpage = frame_get_page(vma->vm_mm, upage, PAL_USER);
-
-  if (kpage == NULL)
-  {
-    struct frame_entry *f = frame_clock_step();
-    frame_entry_pin(f);
-
-    uint32_t *pd_w = f->pagedir;
-    uint8_t *upage_w = f->upage;
-    kpage = pagedir_get_page(pd_w, upage_w);
-
-    if (kpage == NULL) {
-      frame_dump();
-      ASSERT(kpage != NULL);
-    }
-    
-    size_t swap_w = swap_get();
-    swap_write(swap_w, kpage);
-
-    /* This also clears the present bit */
-    pagedir_set_aux(pd_w, upage_w, swap_w);
-    /* Call invalidate_pagedir(pd_w) */
-    pagedir_clear_page(pd_w, upage_w);
-
-    if (swap_r == 0)
-      memset(kpage, 0, PGSIZE);
-    else
-      swap_read(swap_r, kpage);
-
-    frame_entry_replace(f, vma->vm_mm, upage);
-
-    frame_entry_unpin(f);
-  }
-
-  bool success = install_page(upage, kpage, true);
-
-  return success;
-}
-
-static struct vm_operations_struct vm_stack_ops = 
-  { .open = NULL, .close = NULL, .absent = vm_stack_absent };
-
-#endif /* VM */
 
 /*! Create a minimal stack by mapping a zeroed page at the top of
     user virtual memory. */
