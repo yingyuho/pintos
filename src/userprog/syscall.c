@@ -19,6 +19,7 @@ void shutdown_power_off(void) NO_RETURN;
 
 #ifdef VM
 #include <round.h>
+#include "threads/malloc.h"
 #include "vm/frame.h"
 #include "vm/page.h"
 #endif
@@ -194,12 +195,20 @@ static void pin_frames(uint32_t *pd, uint8_t *start, size_t len)
 // than that it's positive and not equal to any other fd open by the file...
 static int next_fd = 10;
 
+#ifdef VM
+static int mmap (int fd, void *addr);
+static void munmap (int mapping);
+#endif
+
+static struct file *find_file(int fd);
+
 static void syscall_handler(struct intr_frame *f) {
   // Take a look at the system call number; this is the first
   // thing on the caller's stack. While we're here, might as
   // well get the others.
   int32_t args[4];
   int i;
+  struct file *file;
 
   // Sanity check: Stack pointer should not be below the code segment (how
   // would you even get there)
@@ -261,10 +270,26 @@ static void syscall_handler(struct intr_frame *f) {
     lock_acquire(&fs_lock);
     f->eax = filesys_create((char *) args[1], (off_t) args[2]);
     lock_release(&fs_lock);
+
     goto done;
-    break;
+
   case SYS_REMOVE:
-    break;
+    get_user_arg(args, f->esp, 1);
+    get_user_arg(args, f->esp, 2);
+
+    // Check that the filename is valid
+    if(!check_filename((char *)args[1])) {
+      f->eax = 0;
+      goto done;
+    }
+    pin_frames(cur->mm.pagedir, (void *) args[1], 1);
+
+    lock_acquire(&fs_lock);
+    f->eax = filesys_remove((char *) args[1]);
+    lock_release(&fs_lock);
+
+    goto done;
+
   case SYS_OPEN:
     get_user_arg(args, f->esp, 1);
 
@@ -339,25 +364,17 @@ static void syscall_handler(struct intr_frame *f) {
     get_user_arg(args, f->esp, 1);
     // Return -1 if fd is not valid
     f->eax = -1;
-    // Find the appropriate file
-    for (i = 0; i < cur->nfiles && i < 64; ++i) {
-      if (cur->files[0][i].fd == args[1]) {
-        lock_acquire(&fs_lock);
-        f->eax = file_length(cur->files[0][i].f);
-        lock_release(&fs_lock);
-        goto done;
-      }
+
+    file = find_file(args[1]);
+
+    if (file != NULL) {
+      lock_acquire(&fs_lock);
+      f->eax = file_length(file);
+      lock_release(&fs_lock);
     }
 
-    for (i = 0; i < cur->nfiles - 64; ++i) {
-      if (cur->files[1][i].fd == args[1]) {
-        lock_acquire(&fs_lock);
-        f->eax = file_length(cur->files[1][i].f);
-        lock_release(&fs_lock);
-        goto done;
-      }
-    }
-    break;
+    goto done;
+
   case SYS_READ:
     get_user_arg(args, f->esp, 1);
     get_user_arg(args, f->esp, 2);
@@ -381,25 +398,18 @@ static void syscall_handler(struct intr_frame *f) {
     }
     else {
       // Find the file
-      for (i = 0; i < cur->nfiles && i < 64; ++i) {
-        if (cur->files[0][i].fd == args[1]) {
-          lock_acquire(&fs_lock);
-          f->eax = file_read(cur->files[0][i].f, (void *)args[2], args[3]);
-          lock_release(&fs_lock);
-          goto done;
-        }
+      file = find_file(args[1]);
+
+      if (file != NULL) {
+        lock_acquire(&fs_lock);
+        f->eax = file_read(file, (void *)args[2], args[3]);
+        lock_release(&fs_lock);
       }
-      
-      for (i = 0; i < cur->nfiles - 64; ++i) {
-        if (cur->files[1][i].fd == args[1]) {
-          lock_acquire(&fs_lock);
-          f->eax = file_read(cur->files[1][i].f, (void *)args[2], args[3]);
-          lock_release(&fs_lock);
-          goto done;
-        }
-      }
+      else
+        f->eax = -1;
     }
-    break;
+
+    goto done;
 
   case SYS_WRITE:
     // Using the second solution; we need to check that it's really valid to
@@ -435,76 +445,46 @@ static void syscall_handler(struct intr_frame *f) {
       // Check whether the buffer is valid
       check_array((void *) args[2], args[3]);
       pin_frames(cur->mm.pagedir, (void *) args[2], args[3]);
-      
-      // Find the file to write to
-      for (i = 0; i < cur->nfiles && i < 64; ++i) {
-        if (cur->files[0][i].fd == args[1]) {
-          // Write to this file
-          lock_acquire(&fs_lock);
-          f->eax = file_write(cur->files[0][i].f, (void *)args[2], args[3]);
-          lock_release(&fs_lock);
-          goto done;
-        }
+
+      file = find_file(args[1]);
+
+      if (file != NULL) {
+        lock_acquire(&fs_lock);
+        f->eax = file_write(file, (void *)args[2], args[3]);
+        lock_release(&fs_lock);
       }
-      for (i = 0; i < cur->nfiles - 64; ++i) {
-        if (cur->files[1][i].fd == args[1]) {
-          lock_acquire(&fs_lock);
-          f->eax = file_write(cur->files[1][i].f, (void *)args[2], args[3]);
-          lock_release(&fs_lock);
-          goto done;
-        }
-      }
-      // Invalid fd?
-      f->eax = 0;
-      goto done;
+      else
+        f->eax = 0;
     }
-    break;
+
+    goto done;
 
   case SYS_SEEK:
     get_user_arg(args, f->esp, 1);
     get_user_arg(args, f->esp, 2);
-    // Find the appropriate file
-        for (i = 0; i < cur->nfiles && i < 64; ++i) {
-      if (cur->files[0][i].fd == args[1]) {
-        lock_acquire(&fs_lock);
-        file_seek(cur->files[0][i].f, args[2]);
-        lock_release(&fs_lock);
-        goto done;
-      }
-    }
 
-    for (i = 0; i < cur->nfiles - 64; ++i) {
-      if (cur->files[1][i].fd == args[1]) {
-        lock_acquire(&fs_lock);
-        file_seek(cur->files[1][i].f, args[2]);
-        lock_release(&fs_lock);
-        goto done;
-      }
-    }
-    break;
+    file = find_file(args[1]);
+
+    if (file != NULL)
+      file_seek(file, args[2]);
+
+    goto done;
+
   case SYS_TELL:
     get_user_arg(args, f->esp, 1);
-    // Find the appropriate file
-    for (i = 0; i < cur->nfiles && i < 64; ++i) {
-      if (cur->files[0][i].fd == args[1]) {
-        lock_acquire(&fs_lock);
-        f->eax = file_tell(cur->files[0][i].f);
-        lock_release(&fs_lock);
-        goto done;
-      }
-    }
 
-    for (i = 0; i < cur->nfiles - 64; ++i) {
-      if (cur->files[1][i].fd == args[1]) {
-        lock_acquire(&fs_lock);
-        f->eax = file_tell(cur->files[1][i].f);
-        lock_release(&fs_lock);
-        goto done;
-      }
+    file = find_file(args[1]);
+
+    if (file != NULL) {
+      lock_acquire(&fs_lock);
+      f->eax = file_tell(file);
+      lock_release(&fs_lock);
     }
-    // Kill the thread :)
-    thread_exit();
-    break;
+    else
+      f->eax = -1;
+   
+    goto done;
+
   case SYS_CLOSE:
     // Close doesn't actually return anything. Retrieve the fd, then
     // iterate through the table of files and remove the appropriate entry
@@ -560,6 +540,30 @@ static void syscall_handler(struct intr_frame *f) {
     }
 
     break;
+
+    f->eax = filesys_create((char *) args[1], (off_t) args[2]);
+
+  /* mapid_t mmap (int fd, void *addr) */
+  /* Maps the file open as fd into the process's virtual address space. 
+     The entire file is mapped into consecutive virtual pages starting at addr. */
+  case SYS_MMAP:
+    get_user_arg(args, f->esp, 1);
+    get_user_arg(args, f->esp, 2);
+
+    f->eax = mmap(args[1], (void *) args[2] );
+
+    goto done;
+
+  /* void munmap (mapid_t mapping) */
+  /* Unmaps the mapping designated by mapping, which must be a mapping ID returned 
+     by a previous call to mmap by the same process that has not yet been unmapped. */
+  case SYS_MUNMAP:
+    get_user_arg(args, f->esp, 1);
+
+    munmap(args[1]);
+
+    goto done;
+
   default:
     // I mean, yeah, there are other ways to implement this
     printf("unrecognized system call\n");
@@ -572,3 +576,142 @@ done:
   //  thread_exit();
 }
 
+static struct file *find_file(int fd) {
+  int i;
+  struct thread *cur = thread_current();
+  for (i = 0; i < cur->nfiles && i < 64; ++i) {
+    if (cur->files[0][i].fd == fd) {
+      return cur->files[0][i].f;
+    }
+  }
+
+  for (i = 0; i < cur->nfiles - 64; ++i) {
+    if (cur->files[1][i].fd == fd) {
+      return cur->files[1][i].f;
+    }
+  }
+
+  return NULL;
+}
+
+#ifdef VM
+
+static int32_t vm_mmap_absent(struct vm_area_struct *vma UNUSED, 
+                              struct vm_fault *vmf)
+{
+  uint8_t *kpage;
+  uint8_t *upage_in = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
+  struct mm_struct *mm = vma->vm_mm;
+  uint32_t *pd_in = mm->pagedir;
+
+  struct frame_entry f;
+
+  struct vm_page_struct *vmp_in = malloc(sizeof(struct vm_page_struct));
+
+  kpage = vm_kpage(&vmp_in);
+
+  frame_make(&f, vma, upage_in);
+  vmp_in->upage = upage_in;
+  vmp_in->swap = 0;
+
+  vmp_in->pte = (uintptr_t) kpage | PTE_P | PTE_U | PTE_W;
+
+  struct hash_elem *e = hash_replace(&vma->vm_page_table, &vmp_in->elem);
+
+  size_t swap_in = 0;
+
+  if (e != NULL) {
+    vmp_in = hash_entry(e, struct vm_page_struct, elem);
+    swap_in = vmp_in->swap;
+    free(vmp_in);
+  }
+
+  /* Pin the new frame for kerkel PF */
+  if (!vmf->user)
+    frame_entry_pin(&f);
+
+  if (swap_in != 0)
+  {
+    swap_lock_acquire(swap_in);
+    swap_read(swap_in, kpage);
+    swap_lock_release(swap_in);
+    swap_free(swap_in);
+  }
+  else
+  {
+    off_t offset = vma->vm_file_ofs + vmf->page_ofs;
+
+    int read_bytes = vma->vm_file_read_bytes - vmf->page_ofs;
+    read_bytes = (read_bytes < 0) ? 0 : read_bytes;
+    read_bytes = (read_bytes > PGSIZE) ? PGSIZE : read_bytes;
+
+    if (read_bytes)
+    {
+      file_read_at(vma->vm_file, kpage, read_bytes, offset);
+    }
+  }
+
+  uint32_t *pd = thread_current()->mm.pagedir;
+
+  bool success = (pagedir_get_page(pd, upage_in) == NULL &&
+                  pagedir_set_page(pd, upage_in, kpage, true));
+
+  frame_push(&f);
+
+  return success;
+}
+
+static struct vm_operations_struct vm_mmap_ops = 
+  { .open = NULL, .close = NULL, .absent = vm_mmap_absent };
+
+static int mmap (int fd, void *addr) {
+  /* Fail for STDIN, STDOUT and negative FD */
+  /* Fail if ADDR is not page-aligned */
+  if (fd < 2 || ((uintptr_t) addr % PGSIZE != 0))
+    return -1;
+
+  struct file *f = find_file(fd);
+
+  if (f == NULL)
+    return -1;
+
+  int read_bytes;
+
+  lock_acquire(&fs_lock);
+  read_bytes = file_length(f);
+  lock_release(&fs_lock);
+
+  if (read_bytes <= 0)
+    return -1;
+
+  /* Try to allocate memory area */
+  struct mm_struct *mm = &thread_current()->mm;
+  struct vm_area_struct *vma = malloc(sizeof(struct vm_area_struct));
+
+  size_t all_bytes = ROUND_UP(read_bytes, PGSIZE);
+  size_t zero_bytes = all_bytes - read_bytes;
+
+  vma->vm_start = (uint8_t *) addr;
+  vma->vm_end = vma->vm_start + all_bytes;
+
+  vma->vm_flags = VM_READ | VM_MMAP | VM_WRITE;
+  vma->vm_ops = &vm_mmap_ops;
+  vma->vm_file = f;
+  vma->vm_file_ofs = 0;
+  vma->vm_file_read_bytes = read_bytes;
+  vma->vm_file_zero_bytes = zero_bytes;
+
+  if (mm_insert_vm_area(mm, vma)) {
+    return 1;
+  } else {
+    free(vma);
+    return -1;
+  }
+
+  return -1;
+}
+
+static void munmap (int mapping) {
+
+}
+#endif /* VM */

@@ -43,7 +43,7 @@ struct vm_area_struct *mm_find(struct mm_struct * mm, uint8_t *addr)
   return NULL;
 }
 
-void mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
+bool mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
 {
   /* Set parent */
   vm->vm_mm = mm;
@@ -88,7 +88,8 @@ void mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
       if (vma_insert->next != NULL)
       {
         /* No overlapping regions */
-        ASSERT(vma_insert->next->vm_start >= vm->vm_end);
+        if(vma_insert->next->vm_start < vm->vm_end)
+          return false;
 
         if (0 && vma_insert->next->vm_start      == vm->vm_end &&
             vma_insert->next->vm_page_prot  == vm->vm_page_prot &&
@@ -108,4 +109,80 @@ void mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
 
     lock_release(&mm->mmap_lock_w);
   }
+
+  return true;
+}
+
+
+static bool evict_fifo(struct frame_entry *f, void *aux) {
+  void **kpage_ptr = aux;
+  if (f->flags & PG_LOCKED) {
+    // printf("frame locked: pd = %x, u = %x\n", f->pagedir, f->upage);
+    return false;
+  } else {
+    *kpage_ptr = pagedir_get_page(f->pagedir, f->upage);
+    return true;
+  }
+}
+
+void *vm_kpage(struct vm_page_struct **vmp_in_ptr)
+{
+  void *kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+  struct frame_entry f;
+
+  if (kpage == NULL)
+  {
+    if (!frame_pull(&f, evict_fifo, &kpage))
+      PANIC("vm_kpage: cannot pull a frame");
+
+    // if (mm != f.vma->vm_mm)
+      // printf("vm_kpage: mmi = %x, mmo = %x\n", 
+      //   (uintptr_t) mm, (uintptr_t) f.vma->vm_mm);
+    // if (mm != f.vma->vm_mm)
+      // printf("vm_kpage: pdo = %x\n", (uintptr_t) f.pagedir);
+
+    uint32_t *pd_out = f.pagedir;
+    uint8_t *upage_out = f.upage;
+
+    // if (mm != f.vma->vm_mm)
+      // printf("vm_kpage: uo = %x\n", 
+      //   (uintptr_t) upage_out);
+
+    if (kpage == NULL) {
+      frame_dump();
+      ASSERT(kpage != NULL);
+    }
+
+    // if (mm != f.vma->vm_mm)
+    //   printf("fl = %x\n", f.flags);    
+
+    if (f.flags & PG_CODE) {
+      (*vmp_in_ptr)->swap = 0;
+    } else if (f.flags & PG_MMAP) {
+      
+    } 
+    else {
+      size_t swap_out = swap_get();
+      swap_lock_acquire(swap_out);
+
+      (*vmp_in_ptr)->swap = swap_out;
+
+      // pagedir_set_aux(pd_out, upage_out, swap_out);
+      swap_write(swap_out, kpage);
+      swap_lock_release(swap_out);
+    }
+
+    (*vmp_in_ptr)->upage = upage_out;
+    (*vmp_in_ptr)->pte = 0;
+    struct hash_elem *e = hash_replace(&f.vma->vm_page_table, 
+                                       &(*vmp_in_ptr)->elem);
+
+    ASSERT(e != NULL);
+
+    (*vmp_in_ptr) = hash_entry(e, struct vm_page_struct, elem);
+
+    pagedir_clear_page(pd_out, upage_out);
+  }
+
+  return kpage;
 }

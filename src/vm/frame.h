@@ -9,7 +9,8 @@
 enum frame_flags
 {
     PG_LOCKED =     0x01,
-    PG_CODE =       0x10
+    PG_CODE =       0x10,
+    PG_MMAP =       0x20
 };
 
 struct frame_entry

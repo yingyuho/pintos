@@ -63,6 +63,7 @@ void pagedir_destroy(uint32_t *pd) {
         palloc_free_page(pt);
     }
     palloc_free_page(pd);
+    // memset(pd, 0xcc, PGSIZE);
     // printf("destroy %x\n", (uintptr_t) pd);
 }
 

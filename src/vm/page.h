@@ -7,8 +7,11 @@
 // #include <list.h>
 #include "threads/pte.h"
 #include "threads/synch.h"
+#include "threads/palloc.h"
+#include "userprog/pagedir.h"
 #include "filesys/file.h"
-// #include "vm/frame.h"
+#include "vm/swap.h"
+#include "vm/frame.h"
 
 struct mm_struct;
 struct vm_area_struct;
@@ -27,8 +30,10 @@ enum vm_flag_t
 
     VM_SHARED =         0x0010,
 
-    /* The regions maps an executable file. */
-    VM_EXECUTABLE =     0x0100
+    /* The region maps an executable file. */
+    VM_EXECUTABLE =     0x0100,
+    /* Memory mapped file */
+    VM_MMAP =           0x0200
 };
 
 #define VM_PROT_DEFAULT (VM_PROT_READ | VM_PROT_WRITE)
@@ -101,12 +106,15 @@ struct vm_operations_struct {
 
 void mm_init (struct mm_struct *);
 
-void mm_insert_vm_area (struct mm_struct *, struct vm_area_struct *);
+/* returns false if insertion failed */
+bool mm_insert_vm_area (struct mm_struct *, struct vm_area_struct *);
 
 struct vm_area_struct *mm_find (struct mm_struct *, uint8_t *);
 
 struct hash_elem *vm_insert_page(struct vm_area_struct *, 
                                  void *upage,
                                  void *kpage);
+
+void *vm_kpage(struct vm_page_struct **vmp_in_ptr);
 
 #endif /* vm/page.h */
