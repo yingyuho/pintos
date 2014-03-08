@@ -665,6 +665,9 @@ static struct vm_operations_struct vm_mmap_ops =
   { .open = NULL, .close = NULL, .absent = vm_mmap_absent };
 
 static int mmap (int fd, void *addr) {
+
+  static int id = 2;
+
   /* Fail for STDIN, STDOUT and negative FD */
   /* Fail if ADDR is not page-aligned */
   if (fd < 2 || ((uintptr_t) addr % PGSIZE != 0) || (addr == 0x0))
@@ -702,9 +705,10 @@ static int mmap (int fd, void *addr) {
   vma->vm_file_ofs = 0;
   vma->vm_file_read_bytes = read_bytes;
   vma->vm_file_zero_bytes = zero_bytes;
+  vma->mmap_id = id;
 
   if (mm_insert_vm_area(mm, vma)) {
-    return 1;
+    return id++;
   } else {
     free(vma);
     return -1;
@@ -714,6 +718,28 @@ static int mmap (int fd, void *addr) {
 }
 
 static void munmap (int mapping) {
-
+  // Go through the mmap list, checking whether it was actually mapped
+  struct mm_struct *mm = &thread_current()->mm;
+  struct vm_area_struct *iter = mm->mmap;
+  struct vm_area_struct *prev = NULL;
+  while (iter != NULL) {
+    if (iter->mmap_id == mapping) {
+      if (iter->vm_flags & VM_MMAP) {
+	if (prev != NULL)
+	  prev->next = iter->next;
+	else
+	  mm->mmap = iter->next;
+        free(iter);
+	return;
+      }      
+      else {
+	/* Well, that's not good */
+	printf("Tried to unmap non-mmaped area!\n");
+	thread_exit();
+      }
+    }
+    prev = iter;
+    iter = iter->next;
+  }
 }
 #endif /* VM */
