@@ -97,75 +97,65 @@ bool mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
   return true;
 }
 
+static bool evict_fifo_vmp(struct frame_entry *f, void *aux) {
+  struct vm_page_struct **vmp_ptr = aux;
+  struct hash_elem *e;
+  size_t swap = 0;
 
-static bool evict_fifo(struct frame_entry *f, void *aux) {
-  void **kpage_ptr = aux;
-  if (f->flags & PG_LOCKED) {
-    // printf("frame locked: pd = %x, u = %x\n", f->pagedir, f->upage);
+  if (f->flags & PG_LOCKED)
     return false;
-  } else {
-    *kpage_ptr = pagedir_get_page(f->pagedir, f->upage);
-    return true;
+
+  uint32_t *pd = f->pagedir;
+  uint8_t *upage = f->upage;
+
+  if (f->flags & (PG_CODE | PG_MMAP)) {
+    (*vmp_ptr)->swap = 0;
+  } 
+  else {
+    swap = swap_get();
+    swap_lock_acquire(swap);
+    (*vmp_ptr)->swap = swap;
+    // printf("acq s = %x\n", swap);
   }
+
+  (*vmp_ptr)->upage = upage;
+  (*vmp_ptr)->pte = 0;
+
+  e = hash_replace(&f->vma->vm_page_table, &(*vmp_ptr)->elem);
+
+  ASSERT(e != NULL);
+
+  pagedir_clear_page(pd, upage);
+
+  (*vmp_ptr) = hash_entry(e, struct vm_page_struct, elem);
+  (*vmp_ptr)->swap = swap;
+
+  return true;
 }
 
-void *vm_kpage(struct vm_page_struct **vmp_in_ptr)
+void *vm_kpage(struct vm_page_struct **vmp_ptr)
 {
   void *kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   struct frame_entry f;
 
   if (kpage == NULL)
   {
-    if (!frame_pull(&f, evict_fifo, &kpage))
+    if (!frame_pull(&f, evict_fifo_vmp, vmp_ptr))
       PANIC("vm_kpage: cannot pull a frame");
 
-    // if (mm != f.vma->vm_mm)
-      // printf("vm_kpage: mmi = %x, mmo = %x\n", 
-      //   (uintptr_t) mm, (uintptr_t) f.vma->vm_mm);
-    // if (mm != f.vma->vm_mm)
-      // printf("vm_kpage: pdo = %x\n", (uintptr_t) f.pagedir);
+    kpage = (*vmp_ptr)->pte & PTE_ADDR;
 
-    uint32_t *pd_out = f.pagedir;
-    uint8_t *upage_out = f.upage;
+    ASSERT((uintptr_t) kpage != 0);
 
-    // if (mm != f.vma->vm_mm)
-      // printf("vm_kpage: uo = %x\n", 
-      //   (uintptr_t) upage_out);
+    size_t swap = (*vmp_ptr)->swap;
 
-    if (kpage == NULL) {
-      frame_dump();
-      ASSERT(kpage != NULL);
-    }
-
-    // if (mm != f.vma->vm_mm)
-    //   printf("fl = %x\n", f.flags);    
-
-    if (f.flags & PG_CODE) {
-      (*vmp_in_ptr)->swap = 0;
+    if (swap != 0) {
+      swap_write(swap, kpage);
+      swap_lock_release(swap);
+      // printf("rel s = %x\n", swap);
     } else if (f.flags & PG_MMAP) {
-
-    } 
-    else {
-      size_t swap_out = swap_get();
-      swap_lock_acquire(swap_out);
-
-      (*vmp_in_ptr)->swap = swap_out;
-
-      // pagedir_set_aux(pd_out, upage_out, swap_out);
-      swap_write(swap_out, kpage);
-      swap_lock_release(swap_out);
+      // TODO
     }
-
-    (*vmp_in_ptr)->upage = upage_out;
-    (*vmp_in_ptr)->pte = 0;
-    struct hash_elem *e = hash_replace(&f.vma->vm_page_table, 
-                                       &(*vmp_in_ptr)->elem);
-
-    ASSERT(e != NULL);
-
-    (*vmp_in_ptr) = hash_entry(e, struct vm_page_struct, elem);
-
-    pagedir_clear_page(pd_out, upage_out);
   }
 
   return kpage;
