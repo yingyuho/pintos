@@ -121,56 +121,81 @@ int process_wait(tid_t child_tid) {
   return a->exit_status;
 }
 
+static void swap_destructor (struct hash_elem *e, void *aux) {
+  struct vm_page_struct *vp;
+  vp = hash_entry(e, struct vm_page_struct, elem);
+  if (vp->swap > 0)
+    swap_free(vp->swap);
+  free(vp);
+}
+
 extern struct lock fs_lock;
 
 /*! Free the current process's resources. */
 void process_exit(void) {
-    struct thread *cur = thread_current();
-    uint32_t *pd;
+  struct thread *cur = thread_current();
+  uint32_t *pd;
 
-    /* Process termination message */
-    printf ("%s: exit(%d)\n", cur->name, cur->exit_status);
-    // printf("exit mm = %x\n", (uintptr_t) &cur->mm);
-    // printf("exit pd = %x\n", (uintptr_t) cur->mm.pagedir);
-    
-    // Write back all mmaps
-    struct mm_struct *mm = &cur->mm;
-    struct vm_area_struct *iter = mm->mmap;
-    while (iter != NULL) {
-      if (iter->vm_flags & VM_MMAP) {
-        void *page;
-	for (page = iter->vm_start; page < iter->vm_end; page += PGSIZE) {
-	  lock_acquire(&fs_lock);
-	  if (pagedir_is_dirty(mm->pagedir, page))
-	    file_write_at(iter->vm_file, pagedir_get_page(mm->pagedir, page), iter->vm_file_read_bytes, iter->vm_file_ofs);
-	  lock_release(&fs_lock);
-	}
+  /* Process termination message */
+  printf ("%s: exit(%d)\n", cur->name, cur->exit_status);
+  // printf("exit mm = %x\n", (uintptr_t) &cur->mm);
+  // printf("exit pd = %x\n", (uintptr_t) cur->mm.pagedir);
+  
+  // Write back all mmaps
+  struct mm_struct *mm = &cur->mm;
+  struct vm_area_struct *iter = mm->mmap;
+
+  while (iter != NULL) {
+
+    if (iter->vm_flags & VM_MMAP) {
+      uint8_t *page;
+      for (page = iter->vm_start; page < iter->vm_end; page += PGSIZE) {
+
+        size_t offset = ((uintptr_t) page - (uintptr_t) iter->vm_start) + 
+                        iter->vm_file_ofs;
+
+        int32_t read_bytes = iter->vm_file_read_bytes - offset;
+
+        if (read_bytes > 0 && pagedir_is_dirty(mm->pagedir, page)) {
+          read_bytes = (read_bytes > PGSIZE) ? PGSIZE : read_bytes;
+          lock_acquire(&fs_lock);
+          file_write_at(
+            iter->vm_file, 
+            pagedir_get_page(mm->pagedir, page), 
+            iter->vm_file_read_bytes, 
+            offset);
+          lock_release(&fs_lock);
+        }
+
       }
-      //free(iter);
-      iter = iter->next;
-      }
-    // struct vm_area_struct *vma;
-    // for (vma = cur->mm.mmap; vma != NULL; vma = vma->next)
-    //   printf("start = %x, end = %x\n", 
-    //     (uintptr_t) vma->vm_start, (uintptr_t) vma->vm_end);
-
-    /* Destroy the current process's page directory and switch back
-       to the kernel-only page directory. */
-    pd = cur->PAGEDIR;
-
-    if (pd != NULL) {
-        /* Correct ordering here is crucial.  We must set
-           cur->pagedir to NULL before switching page directories,
-           so that a timer interrupt can't switch back to the
-           process page directory.  We must activate the base page
-           directory before destroying the process's page
-           directory, or our active page directory will be one
-           that's been freed (and cleared). */
-        cur->PAGEDIR = NULL;
-
-        pagedir_activate(NULL);
-        pagedir_destroy(pd);
     }
+
+    hash_destroy(&iter->vm_page_table, swap_destructor);
+    //free(iter);
+    iter = iter->next;
+  }
+  // struct vm_area_struct *vma;
+  // for (vma = cur->mm.mmap; vma != NULL; vma = vma->next)
+  //   printf("start = %x, end = %x\n", 
+  //     (uintptr_t) vma->vm_start, (uintptr_t) vma->vm_end);
+
+  /* Destroy the current process's page directory and switch back
+     to the kernel-only page directory. */
+  pd = cur->PAGEDIR;
+
+  if (pd != NULL) {
+      /* Correct ordering here is crucial.  We must set
+         cur->pagedir to NULL before switching page directories,
+         so that a timer interrupt can't switch back to the
+         process page directory.  We must activate the base page
+         directory before destroying the process's page
+         directory, or our active page directory will be one
+         that's been freed (and cleared). */
+      cur->PAGEDIR = NULL;
+
+      pagedir_activate(NULL);
+      pagedir_destroy(pd);
+  }
 }
 
 /*! Sets up the CPU for running user code in the current thread.

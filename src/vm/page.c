@@ -1,6 +1,7 @@
 #include "vm/page.h"
 
 #include <debug.h>
+#include <stdio.h>
 #include "threads/malloc.h"
 
 static inline uintptr_t upage_num(const struct hash_elem *e) {
@@ -133,6 +134,8 @@ static bool evict_fifo_vmp(struct frame_entry *f, void *aux) {
   return true;
 }
 
+extern struct lock fs_lock;
+
 void *vm_kpage(struct vm_page_struct **vmp_ptr)
 {
   void *kpage = palloc_get_page(PAL_USER | PAL_ZERO);
@@ -143,7 +146,7 @@ void *vm_kpage(struct vm_page_struct **vmp_ptr)
     if (!frame_pull(&f, evict_fifo_vmp, vmp_ptr))
       PANIC("vm_kpage: cannot pull a frame");
 
-    kpage = (*vmp_ptr)->pte & PTE_ADDR;
+    kpage = (void *) ((*vmp_ptr)->pte & PTE_ADDR);
 
     ASSERT((uintptr_t) kpage != 0);
 
@@ -154,7 +157,18 @@ void *vm_kpage(struct vm_page_struct **vmp_ptr)
       swap_lock_release(swap);
       // printf("rel s = %x\n", swap);
     } else if (f.flags & PG_MMAP) {
-      // TODO
+      struct vm_area_struct *vma = f.vma;
+      size_t offset = ((uintptr_t) f.upage - (uintptr_t) vma->vm_start) + 
+                      vma->vm_file_ofs;
+
+      int32_t read_bytes = vma->vm_file_read_bytes - offset;
+
+      if (read_bytes > 0) {
+        read_bytes = (read_bytes > PGSIZE) ? PGSIZE : read_bytes;
+        lock_acquire(&fs_lock);
+        file_write_at(vma->vm_file, kpage, read_bytes, offset);
+        lock_release(&fs_lock);
+      }
     }
   }
 
