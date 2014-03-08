@@ -138,11 +138,13 @@ void process_exit(void) {
     struct vm_area_struct *iter = mm->mmap;
     while (iter != NULL) {
       if (iter->vm_flags & VM_MMAP) {
-	lock_acquire(&fs_lock);
-	void *page = pagedir_get_page(mm->pagedir, iter->vm_start);
-        if (pagedir_is_dirty(mm->pagedir, iter->vm_start))
-	  file_write_at(iter->vm_file, pagedir_get_page(mm->pagedir, iter->vm_start), iter->vm_file_read_bytes, iter->vm_file_ofs);
-	lock_release(&fs_lock);
+        void *page;
+	for (page = iter->vm_start; page < iter->vm_end; page += PGSIZE) {
+	  lock_acquire(&fs_lock);
+	  if (pagedir_is_dirty(mm->pagedir, page))
+	    file_write_at(iter->vm_file, pagedir_get_page(mm->pagedir, page), iter->vm_file_read_bytes, iter->vm_file_ofs);
+	  lock_release(&fs_lock);
+	}
       }
       //free(iter);
       iter = iter->next;
