@@ -70,6 +70,7 @@ struct vm_area_struct
     uint32_t vm_page_prot;
     uint32_t vm_flags;
   int mmap_id;
+  bool dirty;
 
     struct hash vm_page_table;
 
