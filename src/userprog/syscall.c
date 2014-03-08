@@ -675,6 +675,8 @@ static int mmap (int fd, void *addr) {
   if (f == NULL)
     return -1;
 
+  f = file_reopen(f);
+
   int read_bytes;
 
   lock_acquire(&fs_lock);
