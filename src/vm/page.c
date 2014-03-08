@@ -60,14 +60,14 @@ bool mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
   {
     struct vm_area_struct *vma_insert;
 
-    if (mm->vma_cache != NULL && mm->vma_cache->vm_end <= vm->vm_start)
+    if (mm->vma_cache != NULL && mm->vma_cache->vm_start <= vm->vm_start)
       vma_insert = mm->vma_cache;
     else
       vma_insert = mm->mmap;
 
-    /* Find insertion point */
-    while (vma_insert->next != NULL && 
-           vma_insert->next->vm_end <= vm->vm_start)
+    /* Find insertion point satisfying 
+       vma_insert->vm_start <= vm->vm_start <= vma_insert->next->vm_start  */
+    while (vma_insert->next != NULL && vma_insert->next->vm_start < vm->vm_start)
     {
       vma_insert = vma_insert->next;
     }
@@ -76,36 +76,19 @@ bool mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
 
     lock_acquire(&mm->mmap_lock_w);
 
-    if (0 && vma_insert->vm_end        == vm->vm_start &&
-        vma_insert->vm_page_prot  == vm->vm_page_prot &&
-        vma_insert->vm_file       == vm->vm_file)
-    {
-      vma_insert->vm_end = vm->vm_end;
-      free(vm);
-    }
-    else
-    {
-      if (vma_insert->next != NULL)
-      {
-        /* No overlapping regions */
-        if(vma_insert->next->vm_start < vm->vm_end)
-          return false;
+    /* No overlapping regions */
+    if (vma_insert->vm_end > vm->vm_start)
+      return false;
 
-        if (0 && vma_insert->next->vm_start      == vm->vm_end &&
-            vma_insert->next->vm_page_prot  == vm->vm_page_prot &&
-            vma_insert->next->vm_file       == vm->vm_file)
-        {
-          vma_insert->next->vm_start = vm->vm_start;
-          free(vm);
-        }
-        else
-        {
-          vm->next = vma_insert->next;
-        }
-      }
-
-      vma_insert->next = vm;
+    if (vma_insert->next != NULL)
+    {
+      if (vm->vm_end > vma_insert->next->vm_start)
+        return false;
+      else
+        vm->next = vma_insert->next;
     }
+
+    vma_insert->next = vm;
 
     lock_release(&mm->mmap_lock_w);
   }
@@ -159,7 +142,7 @@ void *vm_kpage(struct vm_page_struct **vmp_in_ptr)
     if (f.flags & PG_CODE) {
       (*vmp_in_ptr)->swap = 0;
     } else if (f.flags & PG_MMAP) {
-      
+
     } 
     else {
       size_t swap_out = swap_get();

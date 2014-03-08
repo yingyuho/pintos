@@ -667,7 +667,7 @@ static struct vm_operations_struct vm_mmap_ops =
 static int mmap (int fd, void *addr) {
   /* Fail for STDIN, STDOUT and negative FD */
   /* Fail if ADDR is not page-aligned */
-  if (fd < 2 || ((uintptr_t) addr % PGSIZE != 0))
+  if (fd < 2 || ((uintptr_t) addr % PGSIZE != 0) || (addr == 0x0))
     return -1;
 
   struct file *f = find_file(fd);
