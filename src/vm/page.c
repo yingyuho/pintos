@@ -47,6 +47,7 @@ bool mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
 {
   /* Set parent */
   vm->vm_mm = mm;
+  vm->pagedir = mm->pagedir;
   vm->next = NULL;
   // list_init(&vm->vm_locked_list);
   hash_init(&vm->vm_page_table, page_hash, page_less, NULL);
