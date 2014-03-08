@@ -42,6 +42,11 @@ FirstName LastName <email@domain.example>
 >> A2: In a few paragraphs, describe your code for locating the frame,
 >> if any, that contains the data of a given page.
 
+We retrieve "struct mm_struct", and then scan through its list of 
+"struct vm_area_struct" that are sorted in ascending order of virtual 
+addresses to determine which segment is the page in. Then we look up the 
+frame or swap slot from a hash table maintained by "struct vm_area_struct".
+
 >> A3: How does your code coordinate accessed and dirty bits between
 >> kernel and user virtual addresses that alias a single frame, or
 >> alternatively how do you avoid the issue?
@@ -50,6 +55,10 @@ FirstName LastName <email@domain.example>
 
 >> A4: When two user processes both need a new frame at the same time,
 >> how are races avoided?
+
+The circular list of frames is locked when it is running an algorithm
+to determine which frame to evict. The candidate to evict is pull out of
+the list before the list is unlocked.
 
 ---- RATIONALE ----
 
@@ -95,6 +104,9 @@ FirstName LastName <email@domain.example>
 >> cannot interfere by e.g. attempting to evict the frame while it is
 >> still being read in?
 
+The newly acquired frame is not inserted into the circular list of frames
+until it is filled with data and the relevant information is initialized.
+
 >> B8: Explain how you handle access to paged-out pages that occur
 >> during system calls.  Do you use page faults to bring in pages (as
 >> in user programs), or do you have a mechanism for "locking" frames
@@ -128,6 +140,12 @@ FirstName LastName <email@domain.example>
 >> C3: Explain how you determine whether a new file mapping overlaps
 >> any existing segment.
 
+For each process, "struct mm_struct mm" contains a list of memory
+region descriptors "struct vm_area_struct". When a new VMA is inserted,
+we first find to insertion point that preserve the ascending order of
+start address. Then we can easily determine if the new VMA is overlapping
+with existing ones. The insertion fails if it is the case.
+
 ---- RATIONALE ----
 
 >> C4: Mappings created with "mmap" have similar semantics to those of
@@ -136,6 +154,11 @@ FirstName LastName <email@domain.example>
 >> that much of their implementation can be shared.  Explain why your
 >> implementation either does or does not share much of the code for
 >> the two situations.
+
+The eviction part is shared with other kind of segments. The paging-in
+part, however, has many codes copied and modified from those of 
+executable segments because we want to keep the MMAP codes in syscall.c
+to reduce entanglement between source files.
 
                            SURVEY QUESTIONS
                            ================

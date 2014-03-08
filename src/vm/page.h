@@ -60,6 +60,8 @@ struct vm_page_struct
 struct vm_area_struct
 {
     struct mm_struct *vm_mm;
+
+    uint32_t *pagedir;
         
     uint8_t *vm_start;
     uint8_t *vm_end;
