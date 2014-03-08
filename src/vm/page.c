@@ -146,13 +146,13 @@ void *vm_kpage(struct vm_page_struct **vmp_in_ptr)
     } 
     else {
       size_t swap_out = swap_get();
-      swap_lock_acquire(swap_out);
+      //      swap_lock_acquire(swap_out);
 
       (*vmp_in_ptr)->swap = swap_out;
 
       // pagedir_set_aux(pd_out, upage_out, swap_out);
       swap_write(swap_out, kpage);
-      swap_lock_release(swap_out);
+      //      swap_lock_release(swap_out);
     }
 
     (*vmp_in_ptr)->upage = upage_out;

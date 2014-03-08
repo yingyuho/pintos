@@ -121,6 +121,8 @@ int process_wait(tid_t child_tid) {
   return a->exit_status;
 }
 
+extern struct lock fs_lock;
+
 /*! Free the current process's resources. */
 void process_exit(void) {
     struct thread *cur = thread_current();
@@ -130,7 +132,21 @@ void process_exit(void) {
     printf ("%s: exit(%d)\n", cur->name, cur->exit_status);
     // printf("exit mm = %x\n", (uintptr_t) &cur->mm);
     // printf("exit pd = %x\n", (uintptr_t) cur->mm.pagedir);
-
+    
+    // Write back all mmaps
+    struct mm_struct *mm = &cur->mm;
+    struct vm_area_struct *iter = mm->mmap;
+    while (iter != NULL) {
+      if (iter->vm_flags & VM_MMAP) {
+	lock_acquire(&fs_lock);
+	void *page = pagedir_get_page(mm->pagedir, iter->vm_start);
+        if (pagedir_is_dirty(mm->pagedir, iter->vm_start))
+	  file_write_at(iter->vm_file, pagedir_get_page(mm->pagedir, iter->vm_start), iter->vm_file_read_bytes, iter->vm_file_ofs);
+	lock_release(&fs_lock);
+      }
+      //free(iter);
+      iter = iter->next;
+      }
     // struct vm_area_struct *vma;
     // for (vma = cur->mm.mmap; vma != NULL; vma = vma->next)
     //   printf("start = %x, end = %x\n", 

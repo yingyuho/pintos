@@ -647,7 +647,9 @@ static int32_t vm_mmap_absent(struct vm_area_struct *vma UNUSED,
 
     if (read_bytes)
     {
+      lock_acquire(&fs_lock);
       file_read_at(vma->vm_file, kpage, read_bytes, offset);
+      lock_release(&fs_lock);
     }
   }
 
@@ -655,6 +657,9 @@ static int32_t vm_mmap_absent(struct vm_area_struct *vma UNUSED,
 
   bool success = (pagedir_get_page(pd, upage_in) == NULL &&
                   pagedir_set_page(pd, upage_in, kpage, true));
+  // Need to set dirty bit to _false_ when fetching from file
+  if (success)
+    pagedir_set_dirty(pd, kpage, false);
 
   frame_push(&f);
 
@@ -667,6 +672,10 @@ static struct vm_operations_struct vm_mmap_ops =
 static int mmap (int fd, void *addr) {
 
   static int id = 2;
+  if (id > 1000000000) {
+    // You know, just in case someone decides to open a bazillion files -.-
+    id = 2;
+  }
 
   /* Fail for STDIN, STDOUT and negative FD */
   /* Fail if ADDR is not page-aligned */
@@ -729,7 +738,12 @@ static void munmap (int mapping) {
 	  prev->next = iter->next;
 	else
 	  mm->mmap = iter->next;
-        free(iter);
+	lock_acquire(&fs_lock);
+	void *page = pagedir_get_page(mm->pagedir, iter->vm_start);
+	if (pagedir_is_dirty(mm->pagedir, iter->vm_start))
+	    file_write_at(iter->vm_file, pagedir_get_page(mm->pagedir, iter->vm_start), iter->vm_file_read_bytes, iter->vm_file_ofs);
+	lock_release(&fs_lock);
+	free(iter);
 	return;
       }      
       else {
