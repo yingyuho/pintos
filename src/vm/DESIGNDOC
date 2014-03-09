@@ -54,6 +54,8 @@ frame or swap slot from a hash table maintained by "struct vm_area_struct".
 >> kernel and user virtual addresses that alias a single frame, or
 >> alternatively how do you avoid the issue?
 
+Only the user virtual address is used.
+
 ---- SYNCHRONIZATION ----
 
 >> A4: When two user processes both need a new frame at the same time,
@@ -67,6 +69,11 @@ out of the queue before the queue is unlocked.
 
 >> A5: Why did you choose the data structure(s) that you did for
 >> representing virtual-to-physical mappings?
+
+Using a linked list makes it somewhat easier to allow an arbitrary number
+of vm areas. Keeping the list of virtual-to-physical mappings per process
+allows us to scan through fewer entries, although it will incur more memory
+cost. 
 
                        PAGING TO AND FROM DISK
                        =======================
@@ -228,7 +235,7 @@ to reduce entanglement between source files.
 
 There are a couple of important divergences; while we can think of a mmaped
 file as a part of memory swapped to the file for most purposes, we need to
-as well as write the pages back (if dirty) on unmap or process exit and also
+write the pages back (if dirty) on unmap or process exit and also to
 be able to identify virtual memory areas with their mmap identifiers.
 
                            SURVEY QUESTIONS
