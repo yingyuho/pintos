@@ -151,8 +151,8 @@ void process_exit(void) {
   while (iter != NULL) {
 
     if (iter->vm_flags & VM_MMAP) {
-      uint8_t *page;
-      for (page = iter->vm_start; page < iter->vm_end; page += PGSIZE) {
+      //uint8_t *page;
+      /*for (page = iter->vm_start; page < iter->vm_end; page += PGSIZE) {
 
         size_t offset = ((uintptr_t) page - (uintptr_t) iter->vm_start) + 
                         iter->vm_file_ofs;
@@ -169,8 +169,15 @@ void process_exit(void) {
             offset);
           lock_release(&fs_lock);
         }
-
-      }
+      */
+      void *page;
+      int nbytes = iter->vm_file_read_bytes;
+      for (page = iter->vm_start; page < iter->vm_end; page += PGSIZE, nbytes -= PGSIZE) {
+	  lock_acquire(&fs_lock);
+	  if (pagedir_is_dirty(mm->pagedir, page))
+	    file_write_at(iter->vm_file, pagedir_get_page(mm->pagedir, page), nbytes>PGSIZE?PGSIZE:nbytes, iter->vm_file_ofs + (page - (void*)iter->vm_start));
+	  lock_release(&fs_lock);
+	}
     }
 
     /* Reclaim swap used by the process */

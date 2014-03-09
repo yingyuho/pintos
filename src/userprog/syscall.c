@@ -647,9 +647,6 @@ static int32_t vm_mmap_absent(struct vm_area_struct *vma UNUSED,
 
   bool success = (pagedir_get_page(pd, upage_in) == NULL &&
                   pagedir_set_page(pd, upage_in, kpage, true));
-  // Need to set dirty bit to _false_ when fetching from file
-  if (success)
-    pagedir_set_dirty(pd, kpage, false);
 
   frame_push(&f);
 
@@ -729,20 +726,15 @@ static void munmap (int mapping) {
         else
           mm->mmap = iter->next;
         uint8_t *page;
-        for (page = iter->vm_start; page < iter->vm_end; page += PGSIZE) {
-          lock_acquire(&fs_lock);
-
-          if (pagedir_is_dirty(mm->pagedir, page))
-            file_write_at(
-              iter->vm_file, 
-              pagedir_get_page(mm->pagedir, page), 
-              iter->vm_file_read_bytes, 
-              iter->vm_file_ofs);
-
-          lock_release(&fs_lock);
-        }
-        free(iter);
-        return;
+	int nbytes = iter->vm_file_read_bytes;
+        for (page = iter->vm_start; page < iter->vm_end; page += PGSIZE, nbytes -= PGSIZE) {
+	  lock_acquire(&fs_lock);
+	  if (pagedir_is_dirty(mm->pagedir, page))
+	    file_write_at(iter->vm_file, pagedir_get_page(mm->pagedir, page), nbytes>PGSIZE?PGSIZE:nbytes, iter->vm_file_ofs + (page - (void*)iter->vm_start));
+	  lock_release(&fs_lock);
+	}
+	free(iter);
+	return;
       }      
       else {
         /* Well, that's not good */
