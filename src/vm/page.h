@@ -67,7 +67,7 @@ struct vm_area_struct
 
     uint32_t vm_page_prot;
     uint32_t vm_flags;
-    
+
     int mmap_id;
     bool dirty;
 
@@ -97,11 +97,6 @@ struct vm_fault {
 };
 
 struct vm_operations_struct {
-    /* Add AREA to list of memory regions */
-    void (*open)(struct vm_area_struct *area);
-    /* Remove AREA from list of memory regions
-     * May split a region into two */
-    void (*close)(struct vm_area_struct *area);
     /* Invoked by page fault handler when a process tries to access
      * a valid address but the page is not present */
     int32_t (*absent)(struct vm_area_struct *vma, struct vm_fault *vmf);

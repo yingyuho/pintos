@@ -14,6 +14,7 @@ static struct lock swap_bitmap_lock;
 static struct bitmap *swap_bitmap;
 static size_t swap_size;
 
+/* A lock for each swap slot. This wastes lots of kernel memory. */
 static struct lock *swap_slot_locks;
 
 /* PGSIZE = 4096, BLOCK_SECTOR_SIZE = 512 */
@@ -50,10 +51,6 @@ void swap_init(void)
 
 void swap_lock_acquire (size_t idx) {
     lock_acquire(swap_slot_locks + idx);
-}
-
-bool swap_lock_try_acquire (size_t idx) {
-    return lock_try_acquire(swap_slot_locks + idx);
 }
 
 void swap_lock_release (size_t idx) {

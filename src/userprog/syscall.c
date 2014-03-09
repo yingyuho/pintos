@@ -654,7 +654,7 @@ static int32_t vm_mmap_absent(struct vm_area_struct *vma UNUSED,
 }
 
 static struct vm_operations_struct vm_mmap_ops = 
-  { .open = NULL, .close = NULL, .absent = vm_mmap_absent };
+  { .absent = vm_mmap_absent };
 
 static int mmap (int fd, void *addr) {
 

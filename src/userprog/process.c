@@ -136,6 +136,14 @@ static void swap_destructor (struct hash_elem *e, void *aux UNUSED) {
 
 extern struct lock fs_lock;
 
+#ifdef VM
+static bool frame_free_page_func(struct frame_entry *f, void *aux) {
+    uint32_t *pd = (uint32_t *) aux;
+
+    return (f->pagedir == pd);
+}
+#endif
+
 /*! Free the current process's resources. */
 void process_exit(void) {
   struct thread *cur = thread_current();
@@ -198,6 +206,9 @@ void process_exit(void) {
          that's been freed (and cleared). */
       cur->PAGEDIR = NULL;
 
+#ifdef VM
+      frame_remove_if(frame_free_page_func, pd);
+#endif
       pagedir_activate(NULL);
       pagedir_destroy(pd);
   }
@@ -602,10 +613,10 @@ static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED,
 }
 
 static struct vm_operations_struct vm_stack_ops = 
-  { .open = NULL, .close = NULL, .absent = vm_stack_absent };
+  { .absent = vm_stack_absent };
 
 static struct vm_operations_struct vm_load_seg_ops = 
-  { .open = NULL, .close = NULL, .absent = vm_load_seg_absent };
+  { .absent = vm_load_seg_absent };
 
 #endif /* VM */
 

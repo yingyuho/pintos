@@ -15,7 +15,6 @@ void swap_read (size_t, void *);
 void swap_write (size_t, const void *);
 
 void swap_lock_acquire (size_t);
-bool swap_lock_try_acquire (size_t);
 
 void swap_lock_release (size_t);
 
