@@ -8,15 +8,14 @@
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
+Yichi Zhang     <yzzhang@caltech.edu>
+Ying-Yu Ho      <yingyu@caltech.edu>
 
->> Specify how many late tokens you are using on this assignment:  
+>> Specify how many late tokens you are using on this assignment: 3
 
 >> What is the Git repository and commit hash for your submission?
 
-   Repository URL:  
+   Repository URL: login.cms.caltech.edu:/cs/courses/cs124/teams/pintos-hkz
    commit ...
 
 ---- PRELIMINARIES ----
@@ -27,6 +26,10 @@ FirstName LastName <email@domain.example>
 >> Please cite any offline or online sources you consulted while
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course instructors.
+
+http://www.opensource.apple.com/source/xnu/xnu-1456.1.26/osfmk/mach/vm_prot.h
+
+http://lxr.free-electrons.com/source/include/linux/mm.h?a=avr32#L210
 
                         PAGE TABLE MANAGEMENT
                         =====================
@@ -56,9 +59,9 @@ frame or swap slot from a hash table maintained by "struct vm_area_struct".
 >> A4: When two user processes both need a new frame at the same time,
 >> how are races avoided?
 
-The circular list of frames is locked when it is running an algorithm
-to determine which frame to evict. The candidate to evict is pull out of
-the list before the list is unlocked.
+The circular queue of frames is locked when it is running an algorithm
+to determine which frame to evict. The candidate frame to evict is pull 
+out of the queue before the queue is unlocked.
 
 ---- RATIONALE ----
 
@@ -87,6 +90,12 @@ the list before the list is unlocked.
 >> invalid virtual address should cause the stack to be extended into
 >> the page that faulted.
 
+The faulting address must be
+
+1. Greater than PHYS_BASE minus 8 MB (max stack size), 
+2. Not less than ESP minus 32 bytes (what PUSHA takes), and
+3. Less than PHYS_BASE.
+
 ---- SYNCHRONIZATION ----
 
 >> B5: Explain the basics of your VM synchronization design.  In
@@ -94,17 +103,55 @@ the list before the list is unlocked.
 >> textbook for an explanation of the necessary conditions for
 >> deadlock.)
 
+Frame table: A single lock for any access to the frame table. 
+
+Swap table: each swap slot has a lock which must be acquired before any 
+reading or writing operation, and released right after I/O operation.
+Apparently we can pass all test cases without these memory-consuming locks 
+because block devices have internal synchronization, but we still use them
+as there are other important operations before I/O occurs.
+
+A process cannot access two swap table simultaneously and frame table does 
+not interact with swap table directly so there is no possible deadlock.
+Decoupling frame table and swap table is tricky, however. 
+
 >> B6: A page fault in process P can cause another process Q's frame
 >> to be evicted.  How do you ensure that Q cannot access or modify
 >> the page during the eviction process?  How do you avoid a race
 >> between P evicting Q's frame and Q faulting the page back in?
+
+The order of events during swapping is
+
+(Eviction phase)
+
+1.  Get a swap slot and mark it as having data (atomic with a lock).
+2.  Lock the swap slot.
+3.  Set the shadow page table to reflect that the page is not present and 
+    to tell the process where (in disk or swap) the page can be found.
+4.  Clear the page table entry so that the affect process would fault
+    when it tries to access this page. It will not be able to read the swap
+    slot because of the lock (no such limitation if no swap is used).
+5.  Pull frame out of the circular queue.
+5.  Write data in frame to swap space.
+6.  Release the lock of swap slot.
+
+(Reading phase, easier because it is mostly about the current process)
+
+7.  Set the shadow page table to tell the current process of a new frame.
+8.  Find out where to read data (swap, disk, or just zero).
+9.  Lock the swap slot.
+10. Read data from swap to frame.
+11. Unlock the swap slot.
+12. Mark the swap slot as not in use.
+13. Install frame to the page table.
+14. Push frame into the circular queue.
 
 >> B7: Suppose a page fault in process P causes a page to be read from
 >> the file system or swap.  How do you ensure that a second process Q
 >> cannot interfere by e.g. attempting to evict the frame while it is
 >> still being read in?
 
-The newly acquired frame is not inserted into the circular list of frames
+The newly acquired frame is not inserted into the circular list of queue
 until it is filled with data and the relevant information is initialized.
 
 >> B8: Explain how you handle access to paged-out pages that occur
@@ -112,6 +159,12 @@ until it is filled with data and the relevant information is initialized.
 >> in user programs), or do you have a mechanism for "locking" frames
 >> into physical memory, or do you use some other design?  How do you
 >> gracefully handle attempted accesses to invalid virtual addresses?
+
+We use page faults to bring-in pages, and pin the corresponding frames
+in page fault handler. Present pages are also pinned. 
+Since we also use page faults to check validity of user pointers in the 
+last project, no much new design is needed to handle attempted access 
+to invalid virtual addresses.
 
 ---- RATIONALE ----
 
@@ -121,6 +174,14 @@ until it is filled with data and the relevant information is initialized.
 >> possibility for deadlock but allows for high parallelism.  Explain
 >> where your design falls along this continuum and why you chose to
 >> design it this way.
+
+We use a single lock for the frame table because its underlying circular
+queue is fragile. Also, most usage of the frame table involves quickly
+traversing all entries. Examples include picking a frame to evict and 
+removing entries when a process exits.
+
+We give each swap slot a lock because it has an array data structure
+and I/O operations are too slow to afford only a single lock.
 
                          MEMORY MAPPED FILES
                          ===================
@@ -184,6 +245,8 @@ website.
 
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
+
+The demand of proper synchronization was insane.
 
 >> Is there some particular fact or hint we should give students in
 >> future quarters to help them solve the problems?  Conversely, did you
