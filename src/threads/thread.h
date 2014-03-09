@@ -139,6 +139,7 @@ struct thread {
 #ifdef VM
     void *esp;                          /* Holds ESP for PF handler */
     struct mm_struct mm;                /* Memory descriptor */
+    size_t swap_waiting;
     #define PAGEDIR mm.pagedir
 #else
     uint32_t *pagedir;                  /*!< Page directory. */
