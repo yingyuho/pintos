@@ -4,26 +4,12 @@
 #include <stdio.h>
 #include "threads/malloc.h"
 
-static inline uintptr_t upage_num(const struct hash_elem *e) {
-  return (uintptr_t) 
-  hash_entry(e, struct vm_page_struct, elem)->upage & PTE_ADDR;
-}
-
-static unsigned page_hash (const struct hash_elem *e, void *aux UNUSED) {
-  return hash_int(upage_num(e));
-}
-
-static bool page_less (const struct hash_elem *a, 
-                       const struct hash_elem *b, 
-                       void *aux UNUSED) {
-  return upage_num(a) < upage_num(b);
-}
-
 void mm_init(struct mm_struct *mm)
 {
   lock_init(&mm->mmap_lock_w);
 }
 
+/* Find memory segment given a virtual address */
 struct vm_area_struct *mm_find(struct mm_struct * mm, uint8_t *addr)
 {
   struct vm_area_struct *vma;
@@ -40,6 +26,26 @@ struct vm_area_struct *mm_find(struct mm_struct * mm, uint8_t *addr)
   return NULL;
 }
 
+/* Helper functions for shadow page table */
+
+/* User page from hash_elem */
+static inline uintptr_t upage_num(const struct hash_elem *e) {
+  return (uintptr_t) 
+  hash_entry(e, struct vm_page_struct, elem)->upage & PTE_ADDR;
+}
+
+/* Hashing function */
+static unsigned page_hash (const struct hash_elem *e, void *aux UNUSED) {
+  return hash_int(upage_num(e));
+}
+
+static bool page_less (const struct hash_elem *a, 
+                       const struct hash_elem *b, 
+                       void *aux UNUSED) {
+  return upage_num(a) < upage_num(b);
+}
+
+/* Insert a segment into memory descriptor */
 bool mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
 {
   /* Set parent */
@@ -87,6 +93,7 @@ bool mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
   return true;
 }
 
+/* Returns true if F can be evicted */
 typedef bool policy_func(struct frame_entry *f, void *aux);
 
 struct policy_vmp {
@@ -94,14 +101,20 @@ struct policy_vmp {
   struct vm_page_struct **vmp_ptr;
 };
 
+/* FIFO polocy */
 static bool policy_fifo(struct frame_entry *f, void *aux UNUSED) {
   return !(f->flags & PG_LOCKED);
 }
 
+/* Second-chance policy */
 static bool policy_second_chance(struct frame_entry *f, void *aux) {
   return policy_fifo(f, aux) && !pagedir_is_accessed(f->pagedir, f->upage);
 }
 
+/* Heart of clock algorithm
+ * Tells frame_pull() which frame can be pulled from the frame table, 
+ * and performs synchronized data management
+ * Warning: acquires a global swap lock without releasing it */
 static bool evict_clock_vmp(struct frame_entry *f, 
                             void *aux) {
   struct policy_vmp *pv = aux;
@@ -111,12 +124,14 @@ static bool evict_clock_vmp(struct frame_entry *f,
   struct hash_elem *e;
   size_t swap = 0;
 
+  /* Quit if the frame should not be pulled */
   if (!policy(f, NULL))
     return false;
 
   uint32_t *pd = f->pagedir;
   uint8_t *upage = f->upage;
 
+  /* Determine if swap is used and acquire a slot if needed */
   if (f->flags & (PG_CODE | PG_MMAP)) {
     (*vmp_ptr)->swap = 0;
   }
@@ -134,12 +149,15 @@ static bool evict_clock_vmp(struct frame_entry *f,
   (*vmp_ptr)->upage = upage;
   (*vmp_ptr)->pte = 0;
 
+  /* Update the shadow page table */
   e = hash_replace(&f->vma->vm_page_table, &(*vmp_ptr)->elem);
 
   ASSERT(e != NULL);
 
+  /* Update the page table */
   pagedir_clear_page(pd, upage);
 
+  /* Pass out some data */
   (*vmp_ptr) = hash_entry(e, struct vm_page_struct, elem);
   (*vmp_ptr)->swap = swap;
 
@@ -148,6 +166,7 @@ static bool evict_clock_vmp(struct frame_entry *f,
 
 extern struct lock fs_lock;
 
+/* Gives a usable frame. Evict a page if needed */
 void *vm_kpage(struct vm_page_struct **vmp_ptr)
 {
   void *kpage = palloc_get_page(PAL_USER);
@@ -155,6 +174,7 @@ void *vm_kpage(struct vm_page_struct **vmp_ptr)
 
   if (kpage == NULL)
   {
+    /* Run clock algorithm first */
     struct policy_vmp pv = { 
       .policy = policy_second_chance, 
       .vmp_ptr = vmp_ptr 
@@ -162,20 +182,25 @@ void *vm_kpage(struct vm_page_struct **vmp_ptr)
 
     if (!frame_pull(&f, evict_clock_vmp, &pv)) {
       pv.policy = policy_fifo;
+      /* If failed, use FIFO */
       if (!frame_pull(&f, evict_clock_vmp, &pv))
         PANIC("vm_kpage: cannot pull a frame");
     }
 
     kpage = (void *) ((*vmp_ptr)->pte & PTE_ADDR);
 
+    /* Should have a usable frame now */
     ASSERT((uintptr_t) kpage != 0);
 
     size_t swap = (*vmp_ptr)->swap;
 
+    /* Eviction */
     if (swap != 0) {
+      /* To swap */
       swap_write(swap, kpage);
       swap_lock_release(swap);
     } else if (f.flags & PG_MMAP) {
+      /* To file */
       struct vm_area_struct *vma = f.vma;
       size_t offset = ((uintptr_t) f.upage - (uintptr_t) vma->vm_start) + 
                       vma->vm_file_ofs;
