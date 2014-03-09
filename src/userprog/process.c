@@ -122,6 +122,7 @@ int process_wait(tid_t child_tid) {
 }
 
 #ifdef VM
+/* Subroutine called by hash_destroy() to free swap slots */
 static void swap_destructor (struct hash_elem *e, void *aux UNUSED) {
   struct vm_page_struct *vp;
   vp = hash_entry(e, struct vm_page_struct, elem);
@@ -151,38 +152,35 @@ void process_exit(void) {
   while (iter != NULL) {
 
     if (iter->vm_flags & VM_MMAP) {
-      //uint8_t *page;
-      /*for (page = iter->vm_start; page < iter->vm_end; page += PGSIZE) {
 
-        size_t offset = ((uintptr_t) page - (uintptr_t) iter->vm_start) + 
-                        iter->vm_file_ofs;
+      uint8_t *page;
+      int nbytes = iter->vm_file_read_bytes;
 
-        int32_t read_bytes = iter->vm_file_read_bytes - offset;
-
-        if (read_bytes > 0 && pagedir_is_dirty(mm->pagedir, page)) {
-          read_bytes = (read_bytes > PGSIZE) ? PGSIZE : read_bytes;
+      for (page = iter->vm_start; 
+           page < iter->vm_end; 
+           page += PGSIZE, nbytes -= PGSIZE) 
+      {
           lock_acquire(&fs_lock);
-          file_write_at(
-            iter->vm_file, 
-            pagedir_get_page(mm->pagedir, page), 
-            iter->vm_file_read_bytes, 
-            offset);
+
+          if (pagedir_is_dirty(mm->pagedir, page)) {
+            file_write_at(
+              iter->vm_file, 
+              pagedir_get_page(mm->pagedir, page), 
+              nbytes > PGSIZE ? PGSIZE : nbytes, 
+              iter->vm_file_ofs + (page - iter->vm_start));
+          }
+
           lock_release(&fs_lock);
         }
-      */
-      void *page;
-      int nbytes = iter->vm_file_read_bytes;
-      for (page = iter->vm_start; page < iter->vm_end; page += PGSIZE, nbytes -= PGSIZE) {
-	  lock_acquire(&fs_lock);
-	  if (pagedir_is_dirty(mm->pagedir, page))
-	    file_write_at(iter->vm_file, pagedir_get_page(mm->pagedir, page), nbytes>PGSIZE?PGSIZE:nbytes, iter->vm_file_ofs + (page - (void*)iter->vm_start));
-	  lock_release(&fs_lock);
-	}
     }
 
     /* Reclaim swap used by the process */
     hash_destroy(&iter->vm_page_table, swap_destructor);
+
+    /* Clean up vm_area_struct and step */
+    struct vm_area_struct *iter_free = iter;
     iter = iter->next;
+    free(iter_free);
   }
 #endif /* VM */
 
