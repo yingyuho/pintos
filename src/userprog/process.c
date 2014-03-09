@@ -121,26 +121,17 @@ int process_wait(tid_t child_tid) {
   return a->exit_status;
 }
 
-static void swap_destructor (struct hash_elem *e, void *aux) {
+#ifdef VM
+static void swap_destructor (struct hash_elem *e, void *aux UNUSED) {
   struct vm_page_struct *vp;
   vp = hash_entry(e, struct vm_page_struct, elem);
+
   if (vp->swap > 0)
     swap_free(vp->swap);
-  else {
-    void *kpage = (void *) (vp->pte & PTE_ADDR);
-    void *upage = vp->upage;
 
-    // if((uintptr_t) kpage != 0) {
-    //   int j;
-    //   uint32_t checksum = 0;
-    //   for (j = 0; j < 1024; ++j)
-    //     checksum += ((uint32_t *) kpage)[j];
-    //   printf("e: up = %x, kp = %x, ck = %x\n", upage, (uintptr_t) kpage, checksum);
-    // }
-
-  }
   free(vp);
 }
+#endif /* VM */
 
 extern struct lock fs_lock;
 
@@ -152,11 +143,10 @@ void process_exit(void) {
   /* Process termination message */
   printf ("%s: exit(%d)\n", cur->name, cur->exit_status);
   
+#ifdef VM
   // Write back all mmaps
   struct mm_struct *mm = &cur->mm;
   struct vm_area_struct *iter = mm->mmap;
-
-  // printf("pd = %x\n", cur->PAGEDIR);
 
   while (iter != NULL) {
 
@@ -190,6 +180,7 @@ void process_exit(void) {
     hash_destroy(&iter->vm_page_table, swap_destructor);
     iter = iter->next;
   }
+#endif /* VM */
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -502,8 +493,6 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
 {
   uint8_t *kpage;
   uint8_t *upage_in = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
-  struct mm_struct *mm = vma->vm_mm;
-  uint32_t *pd_in = mm->pagedir;
 
   struct frame_entry f;
 
@@ -580,8 +569,6 @@ static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED,
 {
   uint8_t *kpage;
   uint8_t *upage_in = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
-  struct mm_struct *mm = vma->vm_mm;
-  uint32_t *pd_in = mm->pagedir;
 
   struct frame_entry f;
 

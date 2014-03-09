@@ -137,6 +137,7 @@ struct thread {
     /*! Owned by userprog/process.c. */
     /**@{*/
 #ifdef VM
+    void *esp;
     struct mm_struct mm;
     #define PAGEDIR mm.pagedir
 #else

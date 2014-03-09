@@ -189,6 +189,9 @@ static void pin_frames(uint32_t *pd, uint8_t *start, size_t len)
       thread_exit();
     }
 }
+
+#else
+static void pin_frames(uint32_t *pd, uint8_t *start, size_t len) {}
 #endif
 
 // Since we have no particular guarantee on what open() will return other
@@ -236,7 +239,7 @@ static void syscall_handler(struct intr_frame *f) {
     get_user_arg(args, f->esp, 1);
     f->eax = -1;
     if (get_user((uint8_t*)args[1]) < 0) { thread_exit(); }
-    pin_frames(cur->mm.pagedir, (void *) args[1], 
+    pin_frames(cur->PAGEDIR, (void *) args[1], 
       strlen((const char *) args[1]));
     //len = strlen((const char*)args[1]) + 1;
     //buf = malloc(len);
@@ -262,7 +265,7 @@ static void syscall_handler(struct intr_frame *f) {
       f->eax = 0;
       goto done;
     }
-    pin_frames(cur->mm.pagedir, (void *) args[1], 1);
+    pin_frames(cur->PAGEDIR, (void *) args[1], 1);
 
     // Try to create the file. I don't really think I need to check the
     // initial size here...
@@ -281,7 +284,7 @@ static void syscall_handler(struct intr_frame *f) {
       f->eax = 0;
       goto done;
     }
-    pin_frames(cur->mm.pagedir, (void *) args[1], 1);
+    pin_frames(cur->PAGEDIR, (void *) args[1], 1);
 
     lock_acquire(&fs_lock);
     f->eax = filesys_remove((char *) args[1]);
@@ -302,7 +305,7 @@ static void syscall_handler(struct intr_frame *f) {
       thread_exit();
     }
 
-    pin_frames(cur->mm.pagedir, (void *) args[1], 1);
+    pin_frames(cur->PAGEDIR, (void *) args[1], 1);
 
     if (cur->nfiles == 128) {
       goto done;
@@ -385,7 +388,7 @@ static void syscall_handler(struct intr_frame *f) {
     // Verify the buffer
     check_array((void *) args[2], args[3]);
     check_write_array((void *) args[2], args[3]);
-    pin_frames(cur->mm.pagedir, (void *) args[2], args[3]);
+    pin_frames(cur->PAGEDIR, (void *) args[2], args[3]);
 
     if (args[1] == 0) { // stdin
       for(i = 0; i < args[3]; ++i) {
@@ -443,7 +446,7 @@ static void syscall_handler(struct intr_frame *f) {
     else {
       // Check whether the buffer is valid
       check_array((void *) args[2], args[3]);
-      pin_frames(cur->mm.pagedir, (void *) args[2], args[3]);
+      pin_frames(cur->PAGEDIR, (void *) args[2], args[3]);
 
       file = find_file(args[1]);
 
@@ -541,7 +544,7 @@ static void syscall_handler(struct intr_frame *f) {
     break;
 
     f->eax = filesys_create((char *) args[1], (off_t) args[2]);
-
+#ifdef VM
   /* mapid_t mmap (int fd, void *addr) */
   /* Maps the file open as fd into the process's virtual address space. 
      The entire file is mapped into consecutive virtual pages starting at addr. */
@@ -562,14 +565,16 @@ static void syscall_handler(struct intr_frame *f) {
     munmap(args[1]);
 
     goto done;
-
+#endif /* VM */
   default:
     // I mean, yeah, there are other ways to implement this
     printf("unrecognized system call\n");
     thread_exit();
   }
 done:
-  frame_for_each(unpin_func, cur->mm.pagedir);
+#ifdef VM
+  frame_for_each(unpin_func, cur->PAGEDIR);
+#endif /* VM */
   return;
 }
 
@@ -650,7 +655,7 @@ static int32_t vm_mmap_absent(struct vm_area_struct *vma UNUSED,
     }
   }
 
-  uint32_t *pd = thread_current()->mm.pagedir;
+  uint32_t *pd = thread_current()->PAGEDIR;
 
   bool success = (pagedir_get_page(pd, upage_in) == NULL &&
                   pagedir_set_page(pd, upage_in, kpage, true));

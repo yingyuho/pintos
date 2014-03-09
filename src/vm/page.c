@@ -98,12 +98,31 @@ bool mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
   return true;
 }
 
-static bool evict_fifo_vmp(struct frame_entry *f, void *aux) {
-  struct vm_page_struct **vmp_ptr = aux;
+typedef bool policy_func(struct frame_entry *f, void *aux);
+
+struct policy_vmp {
+  policy_func *policy;
+  struct vm_page_struct **vmp_ptr;
+};
+
+static bool policy_fifo(struct frame_entry *f, void *aux UNUSED) {
+  return !(f->flags & PG_LOCKED);
+}
+
+static bool policy_second_chance(struct frame_entry *f, void *aux) {
+  return policy_fifo(f, aux) && !pagedir_is_accessed(f->pagedir, f->upage);
+}
+
+static bool evict_clock_vmp(struct frame_entry *f, 
+                            void *aux) {
+  struct policy_vmp *pv = aux;
+  policy_func *policy = pv->policy;
+  struct vm_page_struct **vmp_ptr = pv->vmp_ptr;
+
   struct hash_elem *e;
   size_t swap = 0;
 
-  if (f->flags & PG_LOCKED)
+  if (!policy(f, NULL))
     return false;
 
   uint32_t *pd = f->pagedir;
@@ -142,8 +161,16 @@ void *vm_kpage(struct vm_page_struct **vmp_ptr)
 
   if (kpage == NULL)
   {
-    if (!frame_pull(&f, evict_fifo_vmp, vmp_ptr))
-      PANIC("vm_kpage: cannot pull a frame");
+    struct policy_vmp pv = { 
+      .policy = policy_second_chance, 
+      .vmp_ptr = vmp_ptr 
+    };
+
+    if (!frame_pull(&f, evict_clock_vmp, &pv)) {
+      pv.policy = policy_fifo;
+      if (!frame_pull(&f, evict_clock_vmp, &pv))
+        PANIC("vm_kpage: cannot pull a frame");
+    }
 
     kpage = (void *) ((*vmp_ptr)->pte & PTE_ADDR);
 
