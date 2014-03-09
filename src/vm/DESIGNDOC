@@ -54,7 +54,8 @@ frame or swap slot from a hash table maintained by "struct vm_area_struct".
 >> kernel and user virtual addresses that alias a single frame, or
 >> alternatively how do you avoid the issue?
 
-Only the user virtual address is used.
+Only the user virtual address is used, and we didn't have enough tokens
+to implement sharing.
 
 ---- SYNCHRONIZATION ----
 
@@ -73,7 +74,8 @@ out of the queue before the queue is unlocked.
 Using a linked list makes it somewhat easier to allow an arbitrary number
 of vm areas. Keeping the list of virtual-to-physical mappings per process
 allows us to scan through fewer entries, although it will incur more memory
-cost. 
+cost. Hash tables provide us with quick look-up of physical address or
+swap slot with reasonable memory cost.
 
                        PAGING TO AND FROM DISK
                        =======================
