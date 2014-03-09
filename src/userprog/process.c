@@ -173,9 +173,6 @@ void process_exit(void) {
       }
     }
 
-    //free(iter);
-    // printf("start = %x, end = %x\n", 
-    //   (uintptr_t) iter->vm_start, (uintptr_t) iter->vm_end);
     /* Reclaim swap used by the process */
     hash_destroy(&iter->vm_page_table, swap_destructor);
     iter = iter->next;
@@ -485,9 +482,6 @@ static bool validate_segment(const struct Elf32_Phdr *phdr, struct file *file) {
 
 #ifdef VM
 
-//static void vm_load_seg_open(struct vm_area_struct *area);
-//static void vm_load_seg_close(struct vm_area_struct *area);
-
 static int32_t vm_load_seg_absent(struct vm_area_struct *vma, 
                                   struct vm_fault *vmf)
 {
@@ -499,10 +493,6 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
   struct vm_page_struct *vmp_in = malloc(sizeof(struct vm_page_struct));
 
   kpage = vm_kpage(&vmp_in);
-
-  // printf("pdi = %x\n", (uintptr_t) pd_in);
-
-  // printf("ui = %x\n", (uintptr_t) upage_in);
 
   frame_make(&f, vma, upage_in);
   vmp_in->upage = upage_in;
@@ -549,15 +539,10 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
     memset(kpage + read_bytes, 0, PGSIZE - read_bytes);
   }
 
-  // int j;
-  // uint32_t checksum = 0;
-  // for (j = 0; j < 1024; ++j)
-  //   checksum += ((uint32_t *) kpage)[j];
-  // if (swap_in || checksum)
-  //   printf("r: pd = %x, up = %x, kp = %x, sw = %x, ck = %x\n", 
-  //     f.pagedir, f.upage, (uintptr_t) kpage, swap_in, checksum);
-
   bool success = install_page(upage_in, kpage, vma->vm_flags & VM_WRITE);
+
+  if (success && swap_in)
+    f.flags |= PG_DIRTY;
 
   frame_push(&f);
 
@@ -602,12 +587,6 @@ static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED,
     swap_read(swap_in, kpage);
     swap_lock_release(swap_in);
     swap_free(swap_in);
-    // int j;
-    // uint32_t checksum = 0;
-    // for (j = 0; j < 1024; ++j)
-    //   checksum += ((uint32_t *) kpage)[j];
-    // if (checksum)
-    //   printf("r: pd = %x, up = %x, sw = %x, ck = %x\n", f.pagedir, f.upage, swap_in, checksum);
   }
 
   bool success = install_page(upage_in, kpage, true);

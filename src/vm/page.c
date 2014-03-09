@@ -22,7 +22,6 @@ static bool page_less (const struct hash_elem *a,
 void mm_init(struct mm_struct *mm)
 {
   lock_init(&mm->mmap_lock_w);
-  lock_init(&mm->mmap_lock_pf);
 }
 
 struct vm_area_struct *mm_find(struct mm_struct * mm, uint8_t *addr)
@@ -130,7 +129,12 @@ static bool evict_clock_vmp(struct frame_entry *f,
 
   if (f->flags & (PG_CODE | PG_MMAP)) {
     (*vmp_ptr)->swap = 0;
-  } 
+  }
+  else if ((f->flags & PG_DATA) &&
+           !(f->flags & PG_DIRTY) &&
+           !pagedir_is_dirty(pd, upage)) {
+    (*vmp_ptr)->swap = 0;
+  }
   else {
     swap = swap_get();
     swap_lock_acquire(swap);
@@ -177,14 +181,6 @@ void *vm_kpage(struct vm_page_struct **vmp_ptr)
     ASSERT((uintptr_t) kpage != 0);
 
     size_t swap = (*vmp_ptr)->swap;
-
-    // int j;
-    // uint32_t checksum = 0;
-    // for (j = 0; j < 1024; ++j)
-    //   checksum += ((uint32_t *) kpage)[j];
-    // if (swap || checksum)
-    //   printf("w: pd = %x, up = %x, kp = %x, sw = %x, ck = %x\n", 
-    //     f.pagedir, f.upage, (uintptr_t) kpage, swap, checksum);
 
     if (swap != 0) {
       swap_write(swap, kpage);

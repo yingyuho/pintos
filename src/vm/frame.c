@@ -40,8 +40,12 @@ void frame_make(struct frame_entry *f,
   f->upage = upage;
   f->flags = 0;
 
-  if ((vma->vm_flags & VM_EXECUTABLE) && !(vma->vm_flags & VM_WRITE))
-    f->flags |= PG_CODE;
+  if (vma->vm_flags & VM_EXECUTABLE) {
+    if (vma->vm_flags & VM_WRITE)
+      f->flags |= PG_DATA;
+    else
+      f->flags |= PG_CODE;
+  }
 }
 
 void frame_entry_pin(struct frame_entry *f) {

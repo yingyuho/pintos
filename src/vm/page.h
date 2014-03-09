@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <debug.h>
 #include <hash.h>
-// #include <list.h>
 #include "threads/pte.h"
 #include "threads/synch.h"
 #include "threads/palloc.h"
@@ -46,7 +45,6 @@ struct mm_struct
     struct vm_area_struct *vma_cache;
     struct vm_area_struct *vma_stack;
     struct lock mmap_lock_w;
-    struct lock mmap_lock_pf;
 };
 
 struct vm_page_struct
@@ -69,8 +67,9 @@ struct vm_area_struct
 
     uint32_t vm_page_prot;
     uint32_t vm_flags;
-  int mmap_id;
-  bool dirty;
+    
+    int mmap_id;
+    bool dirty;
 
     struct hash vm_page_table;
 

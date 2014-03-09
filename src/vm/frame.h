@@ -9,8 +9,11 @@
 enum frame_flags
 {
     PG_LOCKED =     0x01,
+    PG_DIRTY =      0x02,
+    
     PG_CODE =       0x10,
-    PG_MMAP =       0x20
+    PG_DATA =       0x20,
+    PG_MMAP =       0x40
 };
 
 struct frame_entry
@@ -26,7 +29,6 @@ struct frame_entry
     size_t prev;
     size_t next;
 
-    // uint16_t age;
     uint32_t flags;
 };
 

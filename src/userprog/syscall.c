@@ -28,13 +28,6 @@ struct lock fs_lock;
 
 static void syscall_handler(struct intr_frame *);
 
-// // Copied from file.c
-// struct file {
-//     struct inode *inode;        /*!< File's inode. */
-//     off_t pos;                  /*!< Current position. */
-//     bool deny_write;            /*!< Has file_deny_write() been called? */
-// };
-
 void syscall_init(void) {
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
     lock_init(&fs_lock);
@@ -241,15 +234,12 @@ static void syscall_handler(struct intr_frame *f) {
     if (get_user((uint8_t*)args[1]) < 0) { thread_exit(); }
     pin_frames(cur->PAGEDIR, (void *) args[1], 
       strlen((const char *) args[1]));
-    //len = strlen((const char*)args[1]) + 1;
-    //buf = malloc(len);
-    //strlcpy(buf, (const char*)args[1], len);
+
     tid_t tid = process_execute((const char*)args[1]);
     f->eax = wait_load(tid);
     if ((int32_t)f->eax == -1)
       process_wait(tid);
         
-    //free(buf);
     goto done;
 
   case SYS_WAIT:
@@ -603,8 +593,6 @@ static int32_t vm_mmap_absent(struct vm_area_struct *vma UNUSED,
 {
   uint8_t *kpage;
   uint8_t *upage_in = (uint8_t *) ((uint32_t) vmf->fault_addr & ~PGMASK);
-  struct mm_struct *mm = vma->vm_mm;
-  uint32_t *pd_in = mm->pagedir;
 
   struct frame_entry f;
 
@@ -736,24 +724,30 @@ static void munmap (int mapping) {
   while (iter != NULL) {
     if (iter->mmap_id == mapping) {
       if (iter->vm_flags & VM_MMAP) {
-	if (prev != NULL)
-	  prev->next = iter->next;
-	else
-	  mm->mmap = iter->next;
-	void *page;
+        if (prev != NULL)
+          prev->next = iter->next;
+        else
+          mm->mmap = iter->next;
+        uint8_t *page;
         for (page = iter->vm_start; page < iter->vm_end; page += PGSIZE) {
-	  lock_acquire(&fs_lock);
-	  if (pagedir_is_dirty(mm->pagedir, page))
-	    file_write_at(iter->vm_file, pagedir_get_page(mm->pagedir, page), iter->vm_file_read_bytes, iter->vm_file_ofs);
-	  lock_release(&fs_lock);
-	}
-	free(iter);
-	return;
+          lock_acquire(&fs_lock);
+
+          if (pagedir_is_dirty(mm->pagedir, page))
+            file_write_at(
+              iter->vm_file, 
+              pagedir_get_page(mm->pagedir, page), 
+              iter->vm_file_read_bytes, 
+              iter->vm_file_ofs);
+
+          lock_release(&fs_lock);
+        }
+        free(iter);
+        return;
       }      
       else {
-	/* Well, that's not good */
-	printf("Tried to unmap non-mmaped area!\n");
-	thread_exit();
+        /* Well, that's not good */
+        printf("Tried to unmap non-mmaped area!\n");
+        thread_exit();
       }
     }
     prev = iter;
