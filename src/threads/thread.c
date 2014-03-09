@@ -158,6 +158,29 @@ int auto_priority(struct thread *t) {
     return p;
 }
 
+#ifdef VM
+static void clear_access_bits(struct thread *t) {
+    uint32_t *pd = t->PAGEDIR;
+    uint32_t *pde;
+
+    if (pd == NULL)
+        return;
+
+    for (pde = pd; pde < pd + pd_no(PHYS_BASE); pde++)
+    if ((*pde & PTE_P) && (*pde & PTE_A)) {
+        uint32_t *pt = pde_get_pt(*pde);
+        uint32_t *pte;
+
+        for (pte = pt; pte < pt + PGSIZE / sizeof *pte; pte++)
+        if ((*pte & PTE_P) && (*pte & PTE_A)) {
+            *pte &= ~(uint32_t) PTE_A;
+        }
+        
+        *pde &= ~(uint32_t) PTE_A;
+    }
+}
+#endif
+
 /*! Called by the timer interrupt handler at each timer tick.
     Thus, this function runs in an external interrupt context. */
 void thread_tick(void) {
@@ -175,6 +198,21 @@ void thread_tick(void) {
 
     if (thread_mlfqs)
         tick_mlfqs();
+
+#ifdef VM
+    /* Clear access bits every tick */
+    struct list_elem *e;
+
+    for (e = list_front(&all_list); 
+         e != list_tail(&all_list);
+         e = list_next(e))
+    {
+        clear_access_bits(list_entry(e, struct thread, allelem));
+    }
+
+    pagedir_activate(t->PAGEDIR);
+
+#endif /* VM */
 
     /* Enforce preemption. */
     if (++thread_ticks >= TIME_SLICE)

@@ -136,13 +136,6 @@ void frame_remove_if(frame_func *func, void *aux)
       ++i;
   }
 
-  // for (i = table_size; (int) i >= 0; --i) {
-  //   printf("i = %x\n", i);
-  //   if (func(&ftable[i], aux)) {
-  //     free_index(i);
-  //   }
-  // }
-
   lock_release(&table_lock);
 }
 

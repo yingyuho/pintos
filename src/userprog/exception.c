@@ -143,30 +143,27 @@ static void page_fault(struct intr_frame *f) {
 #ifdef VM
     struct mm_struct *mm = &(thread_current()->mm);
 
+    /* Update esp for stack growth at user => kernel transition */
+    if (user)
+      thread_current()->esp = f->esp;
+
     if (not_present) {
       uint8_t *upage = (uint8_t *) ((uintptr_t) fault_addr & ~PGMASK);
       struct vm_area_struct *vma;
-      uint8_t *esp = f->esp;
-//#define EXCEPTION_C_DEBUG
-      /* Stack growth */
+      uint8_t *esp = thread_current()->esp;
+
+      /* Stack growth or paging-in */
       vma = mm->vma_stack;
 
-      #ifdef EXCEPTION_C_DEBUG
-      printf("esp = %x, start = %x, end = %x, addr = %x\n", 
-          esp, vma->vm_start, vma->vm_end, fault_addr);
-      #endif
-
       if (vma != NULL && 
-          vma->vm_start - (1 << 25) < (uint8_t *) fault_addr && 
-          esp - PGSIZE/2 < (uint8_t *) fault_addr && 
+          /* Stack size < 8 MB */
+          (vma->vm_end - (1 << 23) < (uint8_t *) fault_addr) & 
+          /* 32 byte below esp is OK (PUSHA) */   
+          (esp - 32 <= (uint8_t *) fault_addr) && 
+          /* Access above PHYS_BASE is bad */
           (uint8_t *) fault_addr < vma->vm_end)
       {
-
-        #ifdef EXCEPTION_C_DEBUG
-        printf("Let's grow the stack!\nstart = %x, end = %x, addr = %x\n", 
-          (size_t) vma->vm_start, (size_t) vma->vm_end, (size_t) fault_addr);
-        #endif
-
+        /* Grow stack */
         if (esp < vma->vm_start)
           vma->vm_start = (uint8_t *) ROUND_DOWN((uintptr_t) esp, PGSIZE);
 
@@ -177,6 +174,7 @@ static void page_fault(struct intr_frame *f) {
           .user = user
         };
 
+        /* Bring in and install a page */
         if (!vma->vm_ops->absent(vma, &vmf))
         {
           PANIC("page_fault: cannot install page for stack");
@@ -186,8 +184,9 @@ static void page_fault(struct intr_frame *f) {
         return;
       }
 
-      /* Loading of code and data segments */
+      /* Load code or data segments */
       vma = mm_find(mm, fault_addr);
+      /* Check permission */
       if (vma != NULL && (!write || (vma->vm_flags & VM_WRITE)))
       {
         struct vm_fault vmf =
@@ -197,11 +196,7 @@ static void page_fault(struct intr_frame *f) {
           .user = user
         };
 
-        #ifdef EXCEPTION_C_DEBUG
-        printf("Cool, start = %x, end = %x, addr = %x\n", 
-          (size_t) vma->vm_start, (size_t) vma->vm_end, (size_t) fault_addr);
-        #endif
-
+        /* Bring in and install a page */
         if (!vma->vm_ops->absent(vma, &vmf))
         {
           PANIC("page_fault: cannot install page for segments");
@@ -210,11 +205,11 @@ static void page_fault(struct intr_frame *f) {
         /* Succeed in loading code and data segments */
         return;
       }
-      // else
-      //   printf("Sad\n");
 
     }
-#endif
+#endif /* VM */
+
+    /* Detection of bad user pointer during system call */
     if (!user) {
       // Store eax into eip, store -1 into eax
       f->eip = (void (*) (void)) f->eax;
@@ -222,17 +217,9 @@ static void page_fault(struct intr_frame *f) {
       return;
     }
 
+    /* Rights viloation is always bad */
     if (!not_present)
       thread_exit();
-
-    // struct vm_area_struct *vma;
-
-#if 0
-    struct vm_area_struct *vma;
-    for (vma = thread_current()->mm.mmap; vma != NULL; vma = vma->next)
-      printf("start = %x, end = %x\n", 
-        (uintptr_t) vma->vm_start, (uintptr_t) vma->vm_end);
-#endif
 
     printf("Page fault at %p: %s error %s page in %s context.\n",
            fault_addr,
