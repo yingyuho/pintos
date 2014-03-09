@@ -741,7 +741,7 @@ static void munmap (int mapping) {
         for (page = iter->vm_start; page < iter->vm_end; page += PGSIZE) {
 	  lock_acquire(&fs_lock);
 	  if (pagedir_is_dirty(mm->pagedir, page))
-	    file_write_at(iter->vm_file, pagedir_get_page(mm->pagedir, page), iter->vm_file_read_bytes, iter->vm_file_ofs + (page - iter->vm_start));
+	    file_write_at(iter->vm_file, pagedir_get_page(mm->pagedir, page), iter->vm_file_read_bytes, iter->vm_file_ofs + (page - (void*)iter->vm_start));
 	  lock_release(&fs_lock);
 	}
 	free(iter);
