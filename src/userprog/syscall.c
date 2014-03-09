@@ -218,7 +218,6 @@ static void syscall_handler(struct intr_frame *f) {
   get_user_arg(args, f->esp, 0);
   struct thread *cur = thread_current();
 
-  // printf("%d %d %d %d\n", num, arg1, arg2, arg3);
   // Technically these are an enum, but C implements enums as ints...
   switch(args[0]) {
 
@@ -570,10 +569,8 @@ static void syscall_handler(struct intr_frame *f) {
     thread_exit();
   }
 done:
-  frame_for_each(unpin_func, NULL);
+  frame_for_each(unpin_func, cur->mm.pagedir);
   return;
-  //  printf("system call!\n");
-  //  thread_exit();
 }
 
 static struct file *find_file(int fd) {

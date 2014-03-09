@@ -126,6 +126,19 @@ static void swap_destructor (struct hash_elem *e, void *aux) {
   vp = hash_entry(e, struct vm_page_struct, elem);
   if (vp->swap > 0)
     swap_free(vp->swap);
+  else {
+    void *kpage = (void *) (vp->pte & PTE_ADDR);
+    void *upage = vp->upage;
+
+    // if((uintptr_t) kpage != 0) {
+    //   int j;
+    //   uint32_t checksum = 0;
+    //   for (j = 0; j < 1024; ++j)
+    //     checksum += ((uint32_t *) kpage)[j];
+    //   printf("e: up = %x, kp = %x, ck = %x\n", upage, (uintptr_t) kpage, checksum);
+    // }
+
+  }
   free(vp);
 }
 
@@ -138,12 +151,12 @@ void process_exit(void) {
 
   /* Process termination message */
   printf ("%s: exit(%d)\n", cur->name, cur->exit_status);
-  // printf("exit mm = %x\n", (uintptr_t) &cur->mm);
-  // printf("exit pd = %x\n", (uintptr_t) cur->mm.pagedir);
   
   // Write back all mmaps
   struct mm_struct *mm = &cur->mm;
   struct vm_area_struct *iter = mm->mmap;
+
+  // printf("pd = %x\n", cur->PAGEDIR);
 
   while (iter != NULL) {
 
@@ -170,14 +183,13 @@ void process_exit(void) {
       }
     }
 
-    hash_destroy(&iter->vm_page_table, swap_destructor);
     //free(iter);
+    // printf("start = %x, end = %x\n", 
+    //   (uintptr_t) iter->vm_start, (uintptr_t) iter->vm_end);
+    /* Reclaim swap used by the process */
+    hash_destroy(&iter->vm_page_table, swap_destructor);
     iter = iter->next;
   }
-  // struct vm_area_struct *vma;
-  // for (vma = cur->mm.mmap; vma != NULL; vma = vma->next)
-  //   printf("start = %x, end = %x\n", 
-  //     (uintptr_t) vma->vm_start, (uintptr_t) vma->vm_end);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -541,9 +553,20 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
 
     if (read_bytes)
     {
+      lock_acquire(&fs_lock);
       file_read_at(vma->vm_file, kpage, read_bytes, offset);
+      lock_release(&fs_lock);
     }
+    memset(kpage + read_bytes, 0, PGSIZE - read_bytes);
   }
+
+  // int j;
+  // uint32_t checksum = 0;
+  // for (j = 0; j < 1024; ++j)
+  //   checksum += ((uint32_t *) kpage)[j];
+  // if (swap_in || checksum)
+  //   printf("r: pd = %x, up = %x, kp = %x, sw = %x, ck = %x\n", 
+  //     f.pagedir, f.upage, (uintptr_t) kpage, swap_in, checksum);
 
   bool success = install_page(upage_in, kpage, vma->vm_flags & VM_WRITE);
 
@@ -592,6 +615,12 @@ static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED,
     swap_read(swap_in, kpage);
     swap_lock_release(swap_in);
     swap_free(swap_in);
+    // int j;
+    // uint32_t checksum = 0;
+    // for (j = 0; j < 1024; ++j)
+    //   checksum += ((uint32_t *) kpage)[j];
+    // if (checksum)
+    //   printf("r: pd = %x, up = %x, sw = %x, ck = %x\n", f.pagedir, f.upage, swap_in, checksum);
   }
 
   bool success = install_page(upage_in, kpage, true);
@@ -643,10 +672,7 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
     vma->vm_file_read_bytes = read_bytes;
     vma->vm_file_zero_bytes = zero_bytes;
     mm_insert_vm_area(mm, vma);
-    // printf("load mm = %x\n", (uintptr_t) mm);
-    // printf("load pd = %x\n", (uintptr_t) mm->pagedir);
 #else /* no-VM */
-    file_seek(file, ofs);
     while (read_bytes > 0 || zero_bytes > 0) {
         /* Calculate how to fill this page.
            We will read PAGE_READ_BYTES bytes from FILE
@@ -661,10 +687,15 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
             return false;
 
         /* Load this page. */
-        if (file_read(file, kpage, page_read_bytes) != (int) page_read_bytes) {
+        lock_acquire(&fs_lock);
+        int actual_read_bytes = file_read_at(file, kpage, page_read_bytes, ofs);
+        lock_release(&fs_lock);
+
+        if (actual_read_bytes != (int) page_read_bytes) {
             palloc_free_page(kpage);
             return false;
         }
+
         memset(kpage + page_read_bytes, 0, page_zero_bytes);
 
         /* Add the page to the process's address space. */

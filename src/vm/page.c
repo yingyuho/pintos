@@ -116,7 +116,6 @@ static bool evict_fifo_vmp(struct frame_entry *f, void *aux) {
     swap = swap_get();
     swap_lock_acquire(swap);
     (*vmp_ptr)->swap = swap;
-    // printf("acq s = %x\n", swap);
   }
 
   (*vmp_ptr)->upage = upage;
@@ -152,10 +151,17 @@ void *vm_kpage(struct vm_page_struct **vmp_ptr)
 
     size_t swap = (*vmp_ptr)->swap;
 
+    // int j;
+    // uint32_t checksum = 0;
+    // for (j = 0; j < 1024; ++j)
+    //   checksum += ((uint32_t *) kpage)[j];
+    // if (swap || checksum)
+    //   printf("w: pd = %x, up = %x, kp = %x, sw = %x, ck = %x\n", 
+    //     f.pagedir, f.upage, (uintptr_t) kpage, swap, checksum);
+
     if (swap != 0) {
       swap_write(swap, kpage);
       swap_lock_release(swap);
-      // printf("rel s = %x\n", swap);
     } else if (f.flags & PG_MMAP) {
       struct vm_area_struct *vma = f.vma;
       size_t offset = ((uintptr_t) f.upage - (uintptr_t) vma->vm_start) + 

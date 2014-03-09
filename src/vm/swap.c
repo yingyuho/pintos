@@ -82,6 +82,7 @@ void swap_free(size_t idx) {
 
 void swap_read(size_t idx, void *kpage) {
     ASSERT(idx < swap_size);
+    ASSERT(idx > 0);
 
     uint8_t *ptr = kpage;
     block_sector_t sector;
@@ -95,6 +96,7 @@ void swap_read(size_t idx, void *kpage) {
 
 void swap_write(size_t idx, const void *kpage) {
     ASSERT(idx < swap_size);
+    ASSERT(idx > 0);
 
     const uint8_t *ptr = kpage;
     block_sector_t sector;
