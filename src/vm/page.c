@@ -160,7 +160,7 @@ extern struct lock fs_lock;
 
 void *vm_kpage(struct vm_page_struct **vmp_ptr)
 {
-  void *kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+  void *kpage = palloc_get_page(PAL_USER);
   struct frame_entry f;
 
   if (kpage == NULL)
@@ -190,12 +190,12 @@ void *vm_kpage(struct vm_page_struct **vmp_ptr)
       size_t offset = ((uintptr_t) f.upage - (uintptr_t) vma->vm_start) + 
                       vma->vm_file_ofs;
 
-      int32_t read_bytes = vma->vm_file_read_bytes - offset;
+      int32_t write_bytes = vma->vm_file_read_bytes - offset;
 
-      if (read_bytes > 0) {
-        read_bytes = (read_bytes > PGSIZE) ? PGSIZE : read_bytes;
+      if (write_bytes > 0) {
+        write_bytes = (write_bytes > PGSIZE) ? PGSIZE : write_bytes;
         lock_acquire(&fs_lock);
-        file_write_at(vma->vm_file, kpage, read_bytes, offset);
+        file_write_at(vma->vm_file, kpage, write_bytes, offset);
         lock_release(&fs_lock);
       }
     }

@@ -620,27 +620,29 @@ static int32_t vm_mmap_absent(struct vm_area_struct *vma UNUSED,
   if (!vmf->user)
     frame_entry_pin(&f);
 
-  if (swap_in != 0)
-  {
+  if (swap_in != 0) {
+    /* Read from swap */
     swap_lock_acquire(swap_in);
     swap_read(swap_in, kpage);
     swap_lock_release(swap_in);
     swap_free(swap_in);
-  }
-  else
-  {
+  } 
+  else {
+    /* Or from mapped file */
     off_t offset = vma->vm_file_ofs + vmf->page_ofs;
 
     int read_bytes = vma->vm_file_read_bytes - vmf->page_ofs;
     read_bytes = (read_bytes < 0) ? 0 : read_bytes;
     read_bytes = (read_bytes > PGSIZE) ? PGSIZE : read_bytes;
 
-    if (read_bytes)
-    {
+    if (read_bytes) {
       lock_acquire(&fs_lock);
       file_read_at(vma->vm_file, kpage, read_bytes, offset);
       lock_release(&fs_lock);
     }
+    
+    /* Zero the remaining bytes */
+    memset(kpage + read_bytes, 0, PGSIZE - read_bytes);
   }
 
   uint32_t *pd = thread_current()->PAGEDIR;

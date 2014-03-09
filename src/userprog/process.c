@@ -498,6 +498,7 @@ static bool validate_segment(const struct Elf32_Phdr *phdr, struct file *file) {
 
 #ifdef VM
 
+/* PF handler subroutine for code and data segments */
 static int32_t vm_load_seg_absent(struct vm_area_struct *vma, 
                                   struct vm_fault *vmf)
 {
@@ -508,6 +509,7 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
 
   struct vm_page_struct *vmp_in = malloc(sizeof(struct vm_page_struct));
 
+  /* Bring in a frame, possibly evicting a page */
   kpage = vm_kpage(&vmp_in);
 
   frame_make(&f, vma, upage_in);
@@ -517,6 +519,7 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
   vmp_in->pte = (uintptr_t) kpage | PTE_P | PTE_U;
   if (vma->vm_flags & VM_WRITE) vmp_in->pte |= PTE_W;
 
+  /* Update shadow page table while retriving swap slot */
   struct hash_elem *e = hash_replace(&vma->vm_page_table, &vmp_in->elem);
 
   size_t swap_in = 0;
@@ -531,27 +534,28 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
   if (!vmf->user)
     frame_entry_pin(&f);
 
-  if (swap_in != 0)
-  {
+  if (swap_in != 0) {
+    /* Read from swap */
     swap_lock_acquire(swap_in);
     swap_read(swap_in, kpage);
     swap_lock_release(swap_in);
     swap_free(swap_in);
   }
-  else
-  {
+  else {
+    /* Or from executable */
     off_t offset = vma->vm_file_ofs + vmf->page_ofs;
 
     int read_bytes = vma->vm_file_read_bytes - vmf->page_ofs;
     read_bytes = (read_bytes < 0) ? 0 : read_bytes;
     read_bytes = (read_bytes > PGSIZE) ? PGSIZE : read_bytes;
 
-    if (read_bytes)
-    {
+    if (read_bytes) {
       lock_acquire(&fs_lock);
       file_read_at(vma->vm_file, kpage, read_bytes, offset);
       lock_release(&fs_lock);
     }
+
+    /* Zero the remaining bytes (important!) */
     memset(kpage + read_bytes, 0, PGSIZE - read_bytes);
   }
 
@@ -565,6 +569,7 @@ static int32_t vm_load_seg_absent(struct vm_area_struct *vma,
   return success;
 }
 
+/* PF handler subroutine for stack segments */
 static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED, 
                                struct vm_fault *vmf)
 {
@@ -575,6 +580,7 @@ static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED,
 
   struct vm_page_struct *vmp_in = malloc(sizeof(struct vm_page_struct));
 
+  /* Bring in a frame, possibly evicting a page */
   kpage = vm_kpage(&vmp_in);
 
   frame_make(&f, vma, upage_in);
@@ -583,6 +589,7 @@ static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED,
 
   vmp_in->pte = (uintptr_t) kpage | PTE_P | PTE_W | PTE_U;
 
+  /* Update shadow page table while retriving swap slot */
   struct hash_elem *e = hash_replace(&vma->vm_page_table, &vmp_in->elem);
 
   size_t swap_in = 0;
@@ -597,12 +604,16 @@ static int32_t vm_stack_absent(struct vm_area_struct *vma UNUSED,
   if (!vmf->user)
     frame_entry_pin(&f);
 
-  if (swap_in != 0)
-  {
+  if (swap_in != 0) {
+    /* Read from swap */
     swap_lock_acquire(swap_in);
     swap_read(swap_in, kpage);
     swap_lock_release(swap_in);
     swap_free(swap_in);
+  }
+  else {
+    /* Or fill with zeroes */
+    memset(kpage, 0, PGSIZE);
   }
 
   bool success = install_page(upage_in, kpage, true);
@@ -641,6 +652,7 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
     ASSERT(ofs % PGSIZE == 0);
 
 #ifdef VM
+    /* Set up memory area descriptor without loading thanks to almighty VM */
     struct mm_struct *mm = &thread_current()->mm;
     struct vm_area_struct *vma = malloc(sizeof(struct vm_area_struct));
     vma->vm_start = upage;
@@ -648,7 +660,11 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
 
     vma->vm_flags = VM_READ | VM_EXEC | VM_EXECUTABLE |
                     (VM_WRITE & -(int)writable);
+
+    /* PF handler */
     vma->vm_ops = &vm_load_seg_ops;
+
+    /* Specify details about reading the executable */
     vma->vm_file = file;
     vma->vm_file_ofs = ofs;
     vma->vm_file_read_bytes = read_bytes;
@@ -710,6 +726,7 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
     uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
 
 #ifdef VM
+    /* Set up memory area descriptor */
     struct mm_struct *mm = &thread_current()->mm;
     uint32_t *pd = mm->pagedir;
     struct vm_area_struct *vma = malloc(sizeof(struct vm_area_struct));
@@ -718,6 +735,7 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
 
     vma->vm_flags = VM_READ | VM_WRITE;
 
+    /* PF handler */
     vma->vm_ops = &vm_stack_ops;
 
     mm->vma_stack = vma;
