@@ -587,7 +587,7 @@ static struct file *find_file(int fd) {
 }
 
 #ifdef VM
-
+/* PF handler subroutine for MMAP */
 static int32_t vm_mmap_absent(struct vm_area_struct *vma UNUSED, 
                               struct vm_fault *vmf)
 {
@@ -640,7 +640,7 @@ static int32_t vm_mmap_absent(struct vm_area_struct *vma UNUSED,
       file_read_at(vma->vm_file, kpage, read_bytes, offset);
       lock_release(&fs_lock);
     }
-    
+
     /* Zero the remaining bytes */
     memset(kpage + read_bytes, 0, PGSIZE - read_bytes);
   }
@@ -660,7 +660,7 @@ static struct vm_operations_struct vm_mmap_ops =
 
 static int mmap (int fd, void *addr) {
 
-  static int id = 2;
+  static int id = 2;    /* ID of mapped file */
   if (id > 1000000000) {
     // You know, just in case someone decides to open a bazillion files -.-
     id = 2;

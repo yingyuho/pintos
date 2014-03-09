@@ -137,6 +137,7 @@ static void swap_destructor (struct hash_elem *e, void *aux UNUSED) {
 extern struct lock fs_lock;
 
 #ifdef VM
+/* Subroutine called by frame_remove_if() to free frames during exiting */
 static bool frame_free_page_func(struct frame_entry *f, void *aux) {
     uint32_t *pd = (uint32_t *) aux;
 

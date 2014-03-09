@@ -137,8 +137,8 @@ struct thread {
     /*! Owned by userprog/process.c. */
     /**@{*/
 #ifdef VM
-    void *esp;
-    struct mm_struct mm;
+    void *esp;                          /* Holds ESP for PF handler */
+    struct mm_struct mm;                /* Memory descriptor */
     #define PAGEDIR mm.pagedir
 #else
     uint32_t *pagedir;                  /*!< Page directory. */

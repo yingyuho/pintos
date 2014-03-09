@@ -65,7 +65,7 @@ void palloc_init(size_t user_page_limit) {
     available, returns a null pointer, unless PAL_ASSERT is set in
     FLAGS, in which case the kernel panics. */
 void * palloc_get_multiple(enum palloc_flags flags, size_t page_cnt) {
-    struct pool *pool = (flags & PAL_USER) ? &user_pool : &kernel_pool;
+    struct pool *pool = flags & PAL_USER ? &user_pool : &kernel_pool;
     void *pages;
     size_t page_idx;
 
@@ -164,12 +164,3 @@ static bool page_from_pool(const struct pool *pool, void *page) {
     return page_no >= start_page && page_no < end_page;
 }
 
-/*! Returns true if PAGE was allocated from kernel pool, false otherwise. */
-bool palloc_from_kernel(void *page) {
-    return page_from_pool(&kernel_pool, page);
-}
-
-/*! Returns true if PAGE was allocated from user pool, false otherwise. */
-bool palloc_from_user(void *page) {
-    return page_from_pool(&user_pool, page);
-}

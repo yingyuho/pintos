@@ -31,14 +31,11 @@ struct vm_area_struct *mm_find(struct mm_struct * mm, uint8_t *addr)
   if (mm->mmap == NULL)
     return NULL;
 
-  if (mm->vma_cache != NULL && mm->vma_cache->vm_start <= addr)
-    vma = mm->vma_cache;
-  else
-    vma = mm->mmap;
+  vma = mm->mmap;
 
   for (; vma != NULL; vma = vma->next)
     if (vma->vm_start <= addr && addr < vma->vm_end)
-      return (mm->vma_cache = vma);
+      return vma;
 
   return NULL;
 }
@@ -49,7 +46,7 @@ bool mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
   vm->vm_mm = mm;
   vm->pagedir = mm->pagedir;
   vm->next = NULL;
-  // list_init(&vm->vm_locked_list);
+
   hash_init(&vm->vm_page_table, page_hash, page_less, NULL);
 
   if (mm->mmap == NULL)
@@ -59,12 +56,7 @@ bool mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
   }
   else
   {
-    struct vm_area_struct *vma_insert;
-
-    if (mm->vma_cache != NULL && mm->vma_cache->vm_start <= vm->vm_start)
-      vma_insert = mm->vma_cache;
-    else
-      vma_insert = mm->mmap;
+    struct vm_area_struct *vma_insert = mm->mmap;
 
     /* Find insertion point satisfying 
        vma_insert->vm_start <= vm->vm_start <= vma_insert->next->vm_start  */
@@ -72,8 +64,6 @@ bool mm_insert_vm_area(struct mm_struct * mm, struct vm_area_struct * vm)
     {
       vma_insert = vma_insert->next;
     }
-
-    mm->vma_cache = vma_insert;
 
     lock_acquire(&mm->mmap_lock_w);
 

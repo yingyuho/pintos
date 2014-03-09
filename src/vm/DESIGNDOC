@@ -40,6 +40,148 @@ http://lxr.free-electrons.com/source/include/linux/mm.h?a=avr32#L210
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+........ threads/thread.h ........
+
+struct thread {
+......
+    void *esp;                          /* Holds ESP for PF handler */
+    struct mm_struct mm;                /* Memory descriptor */
+......
+};
+
+........ vm/frame.h ........
+
+/* Flags for rame table entry */ 
+enum frame_flags
+{
+    PG_LOCKED =     0x01,   /* Should not be evicted */
+    PG_DIRTY =      0x02,   /* Data is modified */
+    
+    PG_CODE =       0x10,   /* Code segment */
+    PG_DATA =       0x20,   /* Data segment */
+    PG_MMAP =       0x40    /* Mapped file segment */
+};
+
+/* Frame table entry */ 
+struct frame_entry
+{
+    uint32_t *pagedir;          /* Process page directory */
+    void *upage;                /* User page address */
+
+    struct vm_area_struct *vma; /* Parent memory area descriptor */
+
+    size_t prev;                /* Circular queue structure */
+    size_t next;
+
+    uint32_t flags;
+};
+
+........ vm/frame.c ........
+
+/* An array holding all struct frame_entry */
+static struct frame_entry *ftable;
+
+/* The next candidate frame to be evicted */
+static int32_t clock_hand;
+#define CLOCK_HAND_NONE -1
+
+/* realloc ftable when table_size > table_capacity */
+static size_t table_capacity;
+static size_t table_size;
+
+/* A lock protecting ftable */
+static struct lock table_lock;
+
+........ vm/page.h ........
+
+/* Flags for memory area descriptor
+ *
+ * Reference:
+ * http://www.opensource.apple.com/source/xnu/xnu-1456.1.26/osfmk/mach/vm_prot.h
+ */
+enum vm_flag_t
+{
+    VM_READ =           0x0001,     /* Permissions */
+    VM_WRITE =          0x0002,
+    VM_EXEC =           0x0004,
+
+    VM_SHARED =         0x0010,     /* Shared by processes */
+    
+    VM_EXECUTABLE =     0x0100,     /* Maps an executable file. */
+    VM_MMAP =           0x0200      /* Memory mapped file */
+};
+
+#define VM_PROT_DEFAULT (VM_PROT_READ | VM_PROT_WRITE)
+#define VM_PROT_ALL (VM_PROT_READ | VM_PROT_WRITE)
+
+/* Memory descriptor */
+struct mm_struct
+{
+    uint32_t *pagedir;
+    struct vm_area_struct *mmap;        /* The first memory segment */
+    struct vm_area_struct *vma_stack;   /* The stack segment */
+    struct lock mmap_lock_w;            /* Lock for modifying list structure */
+};
+
+/* Shadow page table entry owned by memory area descriptor */
+struct vm_page_struct
+{
+    void *upage;            /* User page number (hash key) */
+    uint32_t pte;           /* Page table entry */
+    uint32_t swap;          /* Swap slot */
+    struct hash_elem elem;
+};
+
+/* Memory area descriptor */
+struct vm_area_struct
+{
+    struct mm_struct *vm_mm;        /* Parent memory descriptor */
+
+    uint32_t *pagedir;              /* Process page directory */
+        
+    uint8_t *vm_start;              /* Start and end addresses */
+    uint8_t *vm_end;
+    struct vm_area_struct *next;    /* Next segment */
+
+    uint32_t vm_flags;
+
+    int mmap_id;                    /* ID of memory mapped file */
+    bool dirty;
+
+    struct hash vm_page_table;      /* Shadow page table */
+
+    struct vm_operations_struct *vm_ops;    /* Some function pointers */
+
+    struct file *vm_file;           /* Mapped file */
+    off_t vm_file_ofs;              /* File offset at vm_start */
+    uint32_t vm_file_read_bytes;
+    uint32_t vm_file_zero_bytes;
+};
+
+/* Lightweight struct for a virtual memory segment */
+struct vm_interval {
+    uint32_t *pagedir;
+    uint8_t *vm_start;
+    uint8_t *vm_end;
+};
+
+/* Data passed around PF handlers 
+ *
+ * Reference:
+ * http://lxr.free-electrons.com/source/include/linux/mm.h?a=avr32#L210
+ */
+struct vm_fault {
+    off_t page_ofs;         /* Page offset in the memory segment */
+    void *fault_addr;       /* Faulting address */
+    bool user;              /* From user or kernel */
+};
+
+struct vm_operations_struct {
+    /* Invoked by page fault handler when a process tries to access
+     * a valid address but the page is not present */
+    int32_t (*absent)(struct vm_area_struct *vma, struct vm_fault *vmf);
+};
+
 ---- ALGORITHMS ----
 
 >> A2: In a few paragraphs, describe your code for locating the frame,
@@ -85,6 +227,17 @@ swap slot with reasonable memory cost.
 >> B1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
+
+........ vm/swap.h ........
+
+static struct block *swap_block;        /* Point to swap disk */
+static size_t swap_size;                /* Number of slots */
+
+static struct bitmap *swap_bitmap;      /* Record hich slots have data */
+static struct lock swap_bitmap_lock;    /* Lock for accessing the above */
+
+/* A lock for each swap slot. This wastes lots of kernel memory. */
+static struct lock *swap_slot_locks;
 
 ---- ALGORITHMS ----
 
@@ -200,6 +353,12 @@ and I/O operations are too slow to afford only a single lock.
 >> C1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
+
+static int mmap (int fd, void *addr) {
+
+  static int id = 2;    /* ID of mapped file */
+......
+};
 
 ---- ALGORITHMS ----
 

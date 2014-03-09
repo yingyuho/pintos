@@ -6,27 +6,26 @@
 
 #include "vm/page.h"
 
+/* Flags for rame table entry */ 
 enum frame_flags
 {
-    PG_LOCKED =     0x01,
-    PG_DIRTY =      0x02,
+    PG_LOCKED =     0x01,   /* Should not be evicted */
+    PG_DIRTY =      0x02,   /* Data is modified */
     
-    PG_CODE =       0x10,
-    PG_DATA =       0x20,
-    PG_MMAP =       0x40
+    PG_CODE =       0x10,   /* Code segment */
+    PG_DATA =       0x20,   /* Data segment */
+    PG_MMAP =       0x40    /* Mapped file segment */
 };
 
+/* Frame table entry */ 
 struct frame_entry
 {
-    uint32_t *pagedir;
-    void *upage;
+    uint32_t *pagedir;          /* Process page directory */
+    void *upage;                /* User page address */
 
-    struct vm_area_struct *vma;
-    struct list_elem vma_locked_elem;
+    struct vm_area_struct *vma; /* Parent memory area descriptor */
 
-    /* Info for circular list */
-    /* I don't use list.h because it would be hard to realloc entries */
-    size_t prev;
+    size_t prev;                /* Circular queue structure */
     size_t next;
 
     uint32_t flags;

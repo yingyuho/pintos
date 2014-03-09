@@ -9,10 +9,11 @@
 #include "threads/malloc.h"
 #include "threads/palloc.h"
 
-static struct block *swap_block;
-static struct lock swap_bitmap_lock;
-static struct bitmap *swap_bitmap;
-static size_t swap_size;
+static struct block *swap_block;        /* Point to swap disk */
+static size_t swap_size;                /* Number of slots */
+
+static struct bitmap *swap_bitmap;      /* Record hich slots have data */
+static struct lock swap_bitmap_lock;    /* Lock for accessing the above */
 
 /* A lock for each swap slot. This wastes lots of kernel memory. */
 static struct lock *swap_slot_locks;
