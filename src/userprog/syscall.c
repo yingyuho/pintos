@@ -726,15 +726,21 @@ static void munmap (int mapping) {
         else
           mm->mmap = iter->next;
         uint8_t *page;
-	int nbytes = iter->vm_file_read_bytes;
+        int nbytes = iter->vm_file_read_bytes;
         for (page = iter->vm_start; page < iter->vm_end; page += PGSIZE, nbytes -= PGSIZE) {
-	  lock_acquire(&fs_lock);
-	  if (pagedir_is_dirty(mm->pagedir, page))
-	    file_write_at(iter->vm_file, pagedir_get_page(mm->pagedir, page), nbytes>PGSIZE?PGSIZE:nbytes, iter->vm_file_ofs + (page - (void*)iter->vm_start));
-	  lock_release(&fs_lock);
-	}
-	free(iter);
-	return;
+          lock_acquire(&fs_lock);
+
+          if (pagedir_is_dirty(mm->pagedir, page))
+            file_write_at(
+              iter->vm_file, 
+              pagedir_get_page(mm->pagedir, page), 
+              nbytes>PGSIZE?PGSIZE:nbytes, 
+              iter->vm_file_ofs + (page - iter->vm_start));
+
+          lock_release(&fs_lock);
+        }
+        free(iter);
+        return;
       }      
       else {
         /* Well, that's not good */
