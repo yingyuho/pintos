@@ -187,10 +187,10 @@ struct vm_operations_struct {
 >> A2: In a few paragraphs, describe your code for locating the frame,
 >> if any, that contains the data of a given page.
 
-We retrieve "struct mm_struct", and then scan through its list of 
-"struct vm_area_struct" that are sorted in ascending order of virtual 
-addresses to determine which segment is the page in. Then we look up the 
-frame or swap slot from a hash table maintained by "struct vm_area_struct".
+We scan through the list of memory area descriptors sorted in ascending order 
+of virtual addresses to determine which segment the page is in. 
+Then we look up the physical address or swap slot from a hash table maintained 
+by the memory area descriptor.
 
 >> A3: How does your code coordinate accessed and dirty bits between
 >> kernel and user virtual addresses that alias a single frame, or
@@ -244,9 +244,20 @@ static struct lock *swap_slot_locks;
 >> B2: When a frame is required but none is free, some frame must be
 >> evicted.  Describe your code for choosing a frame to evict.
 
+We implemented the clock algorithm. First we use second chance policy
+to find a frame not recently accessed. If this fails, then we use FIFO
+policy to select a frame. Pinned frames are always skipped.
+
+The circular queue is backed by an array to enable fast traversing.
+
 >> B3: When a process P obtains a frame that was previously used by a
 >> process Q, how do you adjust the page table (and any other data
 >> structures) to reflect the frame Q no longer has?
+
+We set Q's shadow page table to tell it that its page is not present
+and where to find the data. Then (order very important, see B6) we
+update the page table so that Q would start to fault when it tries to
+access the page.
 
 >> B4: Explain your heuristic for deciding whether a page fault for an
 >> invalid virtual address should cause the stack to be extended into
