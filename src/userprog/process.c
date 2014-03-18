@@ -672,6 +672,10 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
     vma->vm_file_zero_bytes = zero_bytes;
     mm_insert_vm_area(mm, vma);
 #else /* no-VM */
+    lock_acquire(&fs_lock);
+    file_seek(file, ofs);
+    lock_release(&fs_lock);
+
     while (read_bytes > 0 || zero_bytes > 0) {
         /* Calculate how to fill this page.
            We will read PAGE_READ_BYTES bytes from FILE
@@ -687,7 +691,7 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
 
         /* Load this page. */
         lock_acquire(&fs_lock);
-        int actual_read_bytes = file_read_at(file, kpage, page_read_bytes, ofs);
+        int actual_read_bytes = file_read(file, kpage, page_read_bytes);
         lock_release(&fs_lock);
 
         if (actual_read_bytes != (int) page_read_bytes) {
@@ -822,7 +826,6 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
     if memory allocation fails. */
 static bool install_page(void *upage, void *kpage, bool writable) {
     struct thread *t = thread_current();
-    printf("t = %x, pd = %x, up = %x\n", (uintptr_t) t, (uintptr_t) t->PAGEDIR, (uintptr_t) upage);
 
     /* Verify that there's not already a page at that virtual
        address, then map our page there. */
