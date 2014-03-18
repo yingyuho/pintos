@@ -218,8 +218,8 @@ static void page_fault(struct intr_frame *f) {
     }
 
     /* Rights viloation is always bad */
-    if (!not_present)
-      thread_exit();
+    // if (!not_present)
+      // thread_exit();
 
     printf("Page fault at %p: %s error %s page in %s context.\n",
            fault_addr,

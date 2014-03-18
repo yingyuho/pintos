@@ -822,6 +822,7 @@ static bool setup_stack(void **esp, char *exec_name, char *saveptr) {
     if memory allocation fails. */
 static bool install_page(void *upage, void *kpage, bool writable) {
     struct thread *t = thread_current();
+    printf("t = %x, pd = %x, up = %x\n", (uintptr_t) t, (uintptr_t) t->PAGEDIR, (uintptr_t) upage);
 
     /* Verify that there's not already a page at that virtual
        address, then map our page there. */

@@ -87,6 +87,12 @@ void shutdown_power_off(void) {
     printf("Powering off...\n");
     serial_flush();
 
+    // https://github.com/Kijewski/chaOS/blob/master/core/shutdown.c
+    // (phony) ACPI shutdown (http://forum.osdev.org/viewtopic.php?t=16990)
+    // Works for qemu and bochs.
+    outw (0xB004, 0x2000);
+
+    // Magic shutdown code for bochs and qemu.
     /* This is a special power-off sequence supported by Bochs and
        QEMU, but not by physical hardware. */
     for (p = s; *p != '\0'; p++)

@@ -32,10 +32,6 @@ void swap_init(void)
     block_sector_t swap_sectors = block_size(swap_block);
     ASSERT(swap_sectors > 0);
 
-    /* I want to store swap index in PTE so some bits cannot be used.
-     * Max swap size = 256GB */
-    swap_sectors = (swap_sectors > (1 << 29)) ? (1 << 29) : swap_sectors;
-
     swap_size = TO_SLOT(swap_sectors);
 
     lock_init(&data_map_lock);
@@ -91,7 +87,6 @@ void swap_lock_release (size_t idx) {
     }
     bitmap_reset(busy_map, idx);
     intr_set_level(old_level);
-    maybe_yield();
 }
 
 size_t swap_get() {
