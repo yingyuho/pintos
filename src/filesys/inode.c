@@ -13,10 +13,11 @@
 /*! On-disk inode.
     Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk {
-    block_sector_t start;               /*!< First data sector. */
+  block_sector_t sectors[126]; /* Array of sectors; however, this has to be
+				  doubly indirect to allow for larger files */
     off_t length;                       /*!< File size in bytes. */
     unsigned magic;                     /*!< Magic number. */
-    uint32_t unused[125];               /*!< Not used. */
+  //uint32_t unused[125];               /*!< Not used. */
 };
 
 /*! Returns the number of sectors to allocate for an inode SIZE
@@ -41,8 +42,15 @@ struct inode {
     POS. */
 static block_sector_t byte_to_sector(const struct inode *inode, off_t pos) {
     ASSERT(inode != NULL);
-    if (pos < inode->data.length)
-        return inode->data.start + pos / BLOCK_SECTOR_SIZE;
+    if (pos < inode->data.length) {
+      //    return inode->data.start + pos / BLOCK_SECTOR_SIZE; {
+      // Unfortunately there's some indirection here; we have to read the
+      // corresponding sector into memory!
+      block_sector_t tmp[128];
+      block_sector_t map = inode->data.sectors[pos / (128 * BLOCK_SECTOR_SIZE)];
+      block_read(fs_device, map, &tmp);
+      return tmp[(pos / BLOCK_SECTOR_SIZE) % 128];
+    }
     else
         return -1;
 }
@@ -65,6 +73,8 @@ bool inode_create(block_sector_t sector, off_t length) {
     struct inode_disk *disk_inode = NULL;
     bool success = false;
 
+    //printf("Creating file of size %d at sector %d\n", length, sector);
+
     ASSERT(length >= 0);
 
     /* If this assertion fails, the inode structure is not exactly
@@ -76,6 +86,7 @@ bool inode_create(block_sector_t sector, off_t length) {
         size_t sectors = bytes_to_sectors(length);
         disk_inode->length = length;
         disk_inode->magic = INODE_MAGIC;
+	/*
         if (free_map_allocate(sectors, &disk_inode->start)) {
             block_write(fs_device, sector, disk_inode);
             if (sectors > 0) {
@@ -86,7 +97,57 @@ bool inode_create(block_sector_t sector, off_t length) {
                     block_write(fs_device, disk_inode->start + i, zeros);
             }
             success = true; 
-        }
+	    } */
+	size_t i, j;
+	for (i = 0; sectors > 0; ++i) {
+	  // Get a block to hold (real) sector pointers
+	  if (free_map_allocate(1, disk_inode->sectors+i)) {
+	    // Get some memory to put these things in
+	    block_sector_t *tmp = (block_sector_t *)malloc(512);
+	    for (j = 0; j < 128 && sectors > 0; ++j, --sectors) {
+	      // Get a block and fill it with zeroes
+	      if (free_map_allocate(1, tmp+j)) {
+		static char zeros[BLOCK_SECTOR_SIZE];
+		block_write(fs_device, tmp[j], zeros);
+		//printf("Writing to %d at line %d\n", tmp[j], __LINE__);
+	      }
+	      else {
+		// fail out, freeing all blocks
+		for (success = true; j;) {
+		  --j;
+		  free_map_release(tmp[j], 1);
+		}
+		// Yes, I'm misusing "success" here. Success being true
+		// indicates failure
+	      }
+	    }
+	    if (!success) {
+	      //printf("Writing to %d at line %d\n", disk_inode->sectors[i], __LINE__);
+	      block_write(fs_device, disk_inode->sectors[i], tmp);
+	    }
+	    free(tmp);
+	  }
+	  else {
+	    --i;
+	    success = true;
+	  }
+	  if (success) {
+	    for (++i; i;) {
+	      --i;
+	      free_map_release(disk_inode->sectors[i], 1);
+	    }
+	  }
+	}
+	// Finally, actually write the disk inode
+	if (success) {
+	  success = false;
+	}
+	else {
+	  success = true;
+	  //printf("Writing to %d at line %d\n", sector, __LINE__);
+	  block_write(fs_device, sector, disk_inode);
+	}
+	
         free(disk_inode);
     }
     return success;
@@ -151,9 +212,25 @@ void inode_close(struct inode *inode) {
  
         /* Deallocate blocks if removed. */
         if (inode->removed) {
-            free_map_release(inode->sector, 1);
-            free_map_release(inode->data.start,
-                             bytes_to_sectors(inode->data.length)); 
+            
+            //free_map_release(inode->data.start,
+            //                 bytes_to_sectors(inode->data.length)); 
+	    // We now have to deallocate _all_ sectors in our doubly
+	    // indirect lists
+
+	    size_t sectors = bytes_to_sectors(inode->data.length);
+	    int i, j;
+	    for (i = 0; sectors; ++i) {
+	      // Read the appropriate thing into memory
+	      block_sector_t tmp[128];
+	      block_sector_t map = inode->data.sectors[i];
+	      block_read(fs_device, map, &tmp);
+	      for (j = 0; j < 128 && sectors; ++i, --sectors) {
+	        free_map_release(tmp[i], 1);
+	      }
+	      free_map_release(map,1);
+	    }
+	    free_map_release(inode->sector, 1);
         }
 
         free(inode); 
