@@ -310,9 +310,10 @@ off_t inode_write_at(struct inode *inode, const void *buffer_, off_t size, off_t
     if (offset + size > inode->data.length) {
       // Extend the file appropriately
       int ext_sectors = bytes_to_sectors(offset + size) - bytes_to_sectors(inode->data.length);
+      if (inode->data.length % BLOCK_SECTOR_SIZE)
+	inode->data.length += BLOCK_SECTOR_SIZE - (inode->data.length % BLOCK_SECTOR_SIZE);
       int i = (inode->data.length) / (128 * BLOCK_SECTOR_SIZE);
-      int j = ((inode->data.length + BLOCK_SECTOR_SIZE - 1) / BLOCK_SECTOR_SIZE) % 128;
-      inode->data.length += BLOCK_SECTOR_SIZE - (inode->data.length % BLOCK_SECTOR_SIZE);
+      int j = ((inode->data.length) / BLOCK_SECTOR_SIZE) % 128;
       block_sector_t *tmp = (block_sector_t *)malloc(512);
       // Deal with the current indirect block if appropriate
       if (j) {
@@ -327,8 +328,10 @@ off_t inode_write_at(struct inode *inode, const void *buffer_, off_t size, off_t
 	    break; // No, we don't really have to do anything more
 	  }
 	}
+	block_write(fs_device, inode->data.sectors[i], tmp);
+	++i;
       }
-      for (++i; ext_sectors; ++i) {
+      for (; ext_sectors; ++i) {
 	if (free_map_allocate(1, inode->data.sectors+i)) {
 	  for (j = 0; ext_sectors && j<128; ++j, --ext_sectors) {
 	    if (free_map_allocate(1, tmp+j)) {
@@ -351,8 +354,8 @@ off_t inode_write_at(struct inode *inode, const void *buffer_, off_t size, off_t
 	}
       }
       free(tmp);
-      if (offset + size < inode->data.length)
-	inode->data.length = offset + size;
+      inode->data.length = offset + size;
+      block_write(fs_device, inode->sector, &inode->data);
     }
 
     while (size > 0) {
