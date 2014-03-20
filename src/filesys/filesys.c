@@ -7,9 +7,26 @@
 #include "filesys/inode.h"
 #include "filesys/directory.h"
 
+#include <list.h>
+
 struct dir {
   struct inode *inode;                /*!< Backing store. */
   off_t pos;                          /*!< Current position. */
+};
+struct inode_disk {
+  uint32_t sectors[126]; /* Array of sectors; however, this has to be
+				  doubly indirect to allow for larger files */
+    off_t length;                       /*!< File size in bytes. */
+    unsigned magic;                     /*!< Magic number. */
+  //uint32_t unused[125];               /*!< Not used. */
+};
+struct inode {
+    struct list_elem elem;              /*!< Element in inode list. */
+    uint32_t sector;              /*!< Sector number of disk location. */
+    int open_cnt;                       /*!< Number of openers. */
+    bool removed;                       /*!< True if deleted, false otherwise. */
+    int deny_write_cnt;                 /*!< 0: writes ok, >0: deny writes. */
+    struct inode_disk data;             /*!< Inode content. */
 };
 
 /*! Partition that contains the file system. */
@@ -77,8 +94,8 @@ struct file * filesys_open_rel(struct dir *d_, const char *name) {
   }
   n = strtok_r(namecpy, "/", &saveptr);
   if (n == NULL) { // it's the root directory
-    f = d->inode;
-    free(d);
+    f = file_open(inode_reopen(d->inode));
+    dir_close(d);
     palloc_free_page(namecpy);
     return f;
   }
@@ -132,10 +149,71 @@ struct file * filesys_open_rel(struct dir *d_, const char *name) {
     }
   }
   // If we got here, then we're opening a directory!
-  f = d->inode;
-  free(d);
+  f = file_open(inode_reopen(d->inode));
+  dir_close(d);
   palloc_free_page(namecpy);
   return f;
+}
+
+// Similar to the above, except we instead create the directory if possible;
+// this changes some of the code logic, because we _don't_ want to be able
+// to find the file!
+// Returns false if failed for any reason
+bool filesys_mkdir_rel(struct dir *d_, const char *name) {
+  char *saveptr, *n, *namecpy;
+  struct inode *in;
+  
+  struct dir *d = dir_reopen(d_); // To avoid messing up the thread copy
+  struct file *f;
+  if (strlen(name) == 0)
+    return false;
+
+  namecpy = palloc_get_page(0);
+  if (namecpy == NULL)
+    return false;
+  memcpy(namecpy, name, strlen(name)+1);
+  if (name[0] == '/') {
+    dir_close(d);
+    d = dir_open_root();
+  }
+  
+  n = strtok_r(namecpy, "/", &saveptr);
+  if (n == NULL) {
+    // mkdir("/") shouldn't work
+    palloc_free_page(namecpy);
+    return false;
+  }
+  while(n) {
+    if (dir_lookup(d, n, &in)) {
+      if (isdir(in)) {
+	dir_close(d);
+	d = dir_open(in);
+      }
+      else {
+	// If there's a file _anywhere_ then it should fail
+	palloc_free_page(namecpy);
+	return false;
+      }
+    }
+    else {
+      // See whether this was the last token
+      if (strtok_r(NULL, "/", &saveptr) == NULL) {
+	// Make a new directory and add it to d
+	uint32_t sec;
+	free_map_allocate(1, &sec);
+	dir_create(sec, 16, d->inode->sector);
+	dir_add(d, n, sec);
+	return true;
+      }
+      else {
+	palloc_free_page(namecpy);
+	return false;
+      }
+    }
+    n=strtok_r(NULL, "/", &saveptr);
+  }
+  palloc_free_page(namecpy);
+  return false;
 }
 
 /*! Opens the file with the given NAME.  Returns the new file if successful
@@ -162,6 +240,68 @@ bool filesys_remove(const char *name) {
 
     return success;
 }
+
+//bool filesys_remove_rel(struct dir *d_, const char *name) {
+//}
+
+bool filesys_create_rel(struct dir *d_, const char *name, unsigned int size) {
+  char *saveptr, *n, *namecpy;
+  struct inode *in;
+  
+  struct dir *d = dir_reopen(d_); // To avoid messing up the thread copy
+  struct file *f;
+  if (strlen(name) == 0)
+    return false;
+
+  namecpy = palloc_get_page(0);
+  if (namecpy == NULL)
+    return false;
+  memcpy(namecpy, name, strlen(name)+1);
+  if (name[0] == '/') {
+    dir_close(d);
+    d = dir_open_root();
+  }
+  
+  n = strtok_r(namecpy, "/", &saveptr);
+  if (n == NULL) {
+    // mkdir("/") shouldn't work
+    palloc_free_page(namecpy);
+    return false;
+  }
+  while(n) {
+    if (dir_lookup(d, n, &in)) {
+      if (isdir(in)) {
+	dir_close(d);
+	d = dir_open(in);
+      }
+      else {
+	// If there's a file _anywhere_ then it should fail
+	palloc_free_page(namecpy);
+	return false;
+      }
+    }
+    else {
+      // See whether this was the last token
+      if (strtok_r(NULL, "/", &saveptr) == NULL) {
+	// Make a new directory and add it to d
+	uint32_t sec;
+	free_map_allocate(1, &sec);
+	inode_create(sec, size);
+	dir_add(d, n, sec);
+	return true;
+      }
+      else {
+	palloc_free_page(namecpy);
+	return false;
+      }
+    }
+    n=strtok_r(NULL, "/", &saveptr);
+  }
+  palloc_free_page(namecpy);
+  return false;
+}
+
+
 
 /*! Formats the file system. */
 static void do_format(void) {

@@ -264,7 +264,11 @@ static void syscall_handler(struct intr_frame *f) {
     // Try to create the file. I don't really think I need to check the
     // initial size here...
     lock_acquire(&fs_lock);
+#ifdef FILESYS
+    f->eax = filesys_create_rel(cur->curdir, (char *)args[1], (off_t) args[2]);
+#else
     f->eax = filesys_create((char *) args[1], (off_t) args[2]);
+#endif
     lock_release(&fs_lock);
 
     goto done;
@@ -578,11 +582,26 @@ struct inode {
     int deny_write_cnt;                 /*!< 0: writes ok, >0: deny writes. */
     struct inode_disk data;             /*!< Inode content. */
 };
+struct file {
+    struct inode *inode;        /*!< File's inode. */
+    off_t pos;                  /*!< Current position. */
+    bool deny_write;            /*!< Has file_deny_write() been called? */
+};
   case SYS_CHDIR: // TODO: implement
-thread_exit();
+    get_user_arg(args, f->esp, 1);
+    struct file *file = filesys_open_rel(cur->curdir, (char *)args[1]);
+    if (file == NULL) {
+      f->eax = 0;
+      break;
+    }
+    dir_close(cur->curdir);
+    cur->curdir = dir_open(inode_reopen(file->inode));
+    file_close(file);
+    f->eax = 1;
     break;
   case SYS_MKDIR: // TODO: implement
-thread_exit();
+    get_user_arg(args, f->esp, 1);
+    f->eax = filesys_mkdir_rel(cur->curdir, (char *)args[1]);
     break;
   case SYS_READDIR: // TODO: implement
 thread_exit();
