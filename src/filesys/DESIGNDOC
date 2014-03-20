@@ -74,8 +74,7 @@ reader will not see any of what B writes.
 >> processes writing to a file cannot prevent another process forever
 >> from reading the file.
 
-All reading and writing is done one sector at a time and do not block
-each other.
+No blocking actually occurs between readers and writers.
 
 ---- RATIONALE ----
 
@@ -86,7 +85,8 @@ each other.
 >> structure have, compared to a multilevel index?
 
 It is a multilevel index; the combination was chosen for simplicity of
-calculation and indexing.
+calculation and indexing. It has slightly more overhead than strictly
+necessary.
 
                             SUBDIRECTORIES
                             ==============
@@ -120,10 +120,16 @@ distinction is made by the functions that do the traversal).
 >> working directory?  If so, what happens to that process's future
 >> file system operations?  If not, how do you prevent it?
 
+Yes; the relevant directory calls simply fail if the underlying inode
+has been removed.
+
 ---- RATIONALE ----
 
 >> B6: Explain why you chose to represent the current directory of a
 >> process the way you did.
+
+It's represented as a pointer to a struct dir, making it easy to update
+and take up relatively little memory.
 
                              BUFFER CACHE
                              ============

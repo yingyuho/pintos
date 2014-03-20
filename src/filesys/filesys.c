@@ -94,8 +94,9 @@ struct file * filesys_open_rel(struct dir *d_, const char *name) {
     return NULL;
 
   namecpy = palloc_get_page(0);
-  if (namecpy == NULL)
+  if (namecpy == NULL) {
     return NULL;
+  }
   memcpy(namecpy, name, strlen(name)+1);
   if (name[0] == '/') {
     dir_close(d);
@@ -128,6 +129,7 @@ struct file * filesys_open_rel(struct dir *d_, const char *name) {
     }
   }
   else {
+    dir_close(d);
     palloc_free_page(namecpy);
     return NULL; // some part of the filename is wrong
   }
@@ -138,6 +140,7 @@ struct file * filesys_open_rel(struct dir *d_, const char *name) {
       if (isdir(in))
       d = dir_open(in);
     else {
+      dir_close(d);
       // Well, then it must be a file
       if (strtok_r(NULL, "/", &saveptr)) {
 	// Means we're trying to use something that's not a directory as one
@@ -153,13 +156,13 @@ struct file * filesys_open_rel(struct dir *d_, const char *name) {
     }
     }
     else {
+      dir_close(d);
       palloc_free_page(namecpy);
       return NULL; // some part of the filename is wrong
     }
   }
   // If we got here, then we're opening a directory!
   f = file_open(inode_reopen(d->inode));
-  //f->pos = d->pos; // for readdir purposes
   dir_close(d);
   palloc_free_page(namecpy);
   return f;
@@ -190,6 +193,7 @@ bool filesys_mkdir_rel(struct dir *d_, const char *name) {
   n = strtok_r(namecpy, "/", &saveptr);
   if (n == NULL) {
     // mkdir("/") shouldn't work
+    dir_close(d);
     palloc_free_page(namecpy);
     return false;
   }
@@ -201,6 +205,7 @@ bool filesys_mkdir_rel(struct dir *d_, const char *name) {
       }
       else {
 	// If there's a file _anywhere_ then it should fail
+	dir_close(d);
 	palloc_free_page(namecpy);
 	return false;
       }
@@ -213,15 +218,19 @@ bool filesys_mkdir_rel(struct dir *d_, const char *name) {
 	free_map_allocate(1, &sec);
 	dir_create(sec, 16, d->inode->sector);
 	dir_add(d, n, sec);
+	dir_close(d);
+	palloc_free_page(namecpy);
 	return true;
       }
       else {
+	dir_close(d);
 	palloc_free_page(namecpy);
 	return false;
       }
     }
     n=strtok_r(NULL, "/", &saveptr);
   }
+  dir_close(d);
   palloc_free_page(namecpy);
   return false;
 }
@@ -254,15 +263,17 @@ bool filesys_remove(const char *name) {
 bool filesys_remove_rel(struct dir *d_, const char *name) {
   char *saveptr, *n, *namecpy, *nt;
   struct inode *in;
-  
+ 
   struct dir *d = dir_reopen(d_), *d2; // To avoid messing up the thread copy
   struct file *f;
   if (strlen(name) == 0 || d == NULL)
     return false;
 
   namecpy = palloc_get_page(0);
-  if (namecpy == NULL)
+
+  if (namecpy == NULL) {
     return false;
+  }
   memcpy(namecpy, name, strlen(name)+1);
   if (name[0] == '/') {
     dir_close(d);
@@ -272,7 +283,6 @@ bool filesys_remove_rel(struct dir *d_, const char *name) {
   
   n = strtok_r(namecpy, "/", &saveptr);
   if (n == NULL) {
-    // mkdir("/") shouldn't work
     palloc_free_page(namecpy);
     return false;
   }
@@ -289,12 +299,18 @@ bool filesys_remove_rel(struct dir *d_, const char *name) {
 	// check whether it's the last token
 	if (strtok_r(NULL, "/", &saveptr)) {
 	  // if not then fail out
+	  dir_close(d);
+	  if(d2)
+	    dir_close(d2);
 	  palloc_free_page(namecpy);
 	  return false;
 	}
 	else {
 	  // if so, try to remove the file
 	  bool suc = dir_remove(d, n);
+	  dir_close(d);
+	  if(d2)
+	    dir_close(d2);
 	  palloc_free_page(namecpy);
 	  return suc;
 	}
@@ -302,6 +318,9 @@ bool filesys_remove_rel(struct dir *d_, const char *name) {
     }
     else {
       // fail out
+      dir_close(d);
+      if(d2)
+	dir_close(d2);
       palloc_free_page(namecpy);
       return false;
     }
@@ -320,6 +339,8 @@ bool filesys_remove_rel(struct dir *d_, const char *name) {
     palloc_free_page(namecpy);
     return suc;
   }
+  printf("wuh?\n");
+  dir_close(d);
   palloc_free_page(namecpy);
   return false;
 }
@@ -366,9 +387,17 @@ bool filesys_create_rel(struct dir *d_, const char *name, unsigned int size) {
 	// Make a new directory and add it to d
 	uint32_t sec;
 	free_map_allocate(1, &sec);
-	inode_create(sec, size);
-	dir_add(d, n, sec);
-	return true;
+	if ((sec != NULL) && inode_create(sec, size)) {
+	  dir_add(d, n, sec);
+	  palloc_free_page(namecpy);
+	  return true;
+	}
+	else {
+	  if(sec != NULL)
+	    free_map_release(sec, 1);
+	  palloc_free_page(namecpy);
+	  return false;
+	}
       }
       else {
 	palloc_free_page(namecpy);

@@ -635,8 +635,10 @@ static void syscall_handler(struct intr_frame *f) {
       // I should probably change the implementations of seek() and
       // read() so that they don't affect pos for directories since
       // I'm doing this, but I kind of don't care
-    }
 
+      // memory leaks are fun
+      dir_close(dir);
+    }
     break;
   case SYS_ISDIR:
     get_user_arg(args, f->esp, 1);
