@@ -162,6 +162,7 @@ struct thread {
 
 #ifdef FILESYS
   struct dir *curdir;
+  size_t cache_waiting;
 #endif /* FILESYS */
 
     /*! Owned by thread.c. */

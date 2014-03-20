@@ -29,13 +29,21 @@ struct inode_disk {
 
 /*! Creates a directory with space for ENTRY_CNT entries in the
     given SECTOR.  Returns true if successful, false on failure. */
-bool dir_create(block_sector_t sector, size_t entry_cnt) {
+bool dir_create(block_sector_t sector, size_t entry_cnt, block_sector_t parent) {
     bool ret = inode_create(sector, entry_cnt * sizeof(struct dir_entry));
+    if (!ret)
+      return false;
     struct inode_disk d;
     block_read(fs_device, sector, &d);
     d.magic++;
     block_write(fs_device, sector, &d);
-    return ret;
+
+    // Open the directory and add the . and .. special files
+    struct dir *dir = dir_open(inode_open(sector));
+    dir_add(dir, ".", sector);
+    dir_add(dir, "..", parent);
+    dir_close(dir);
+    return true;
 }
 
 /*! Opens and returns the directory for the given INODE, of which
@@ -176,6 +184,10 @@ bool dir_remove(struct dir *dir, const char *name) {
 
     ASSERT(dir != NULL);
     ASSERT(name != NULL);
+
+    if (strcmp(name, ".") ^ strcmp(name, "..")) {
+      return false; // Can't let you do that
+    }
 
     /* Find directory entry. */
     if (!lookup(dir, name, &e, &ofs))
