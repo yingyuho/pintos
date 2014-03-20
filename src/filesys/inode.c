@@ -5,6 +5,7 @@
 #include <string.h>
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
+#include "filesys/cache.h"
 #include "threads/malloc.h"
 
 /*! Identifies an inode. */
@@ -257,6 +258,8 @@ off_t inode_read_at(struct inode *inode, void *buffer_, off_t size, off_t offset
         if (chunk_size <= 0)
             break;
 
+        cache_read(sector_idx, sector_ofs, buffer + bytes_read, chunk_size);
+#if 0
         if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE) {
             /* Read full sector directly into caller's buffer. */
             block_read (fs_device, sector_idx, buffer + bytes_read);
@@ -272,7 +275,7 @@ off_t inode_read_at(struct inode *inode, void *buffer_, off_t size, off_t offset
             block_read(fs_device, sector_idx, bounce);
             memcpy(buffer + bytes_read, bounce + sector_ofs, chunk_size);
         }
-      
+#endif
         /* Advance. */
         size -= chunk_size;
         offset += chunk_size;
@@ -371,6 +374,8 @@ off_t inode_write_at(struct inode *inode, const void *buffer_, off_t size, off_t
         if (chunk_size <= 0)
             break;
 
+        cache_write(sector_idx, sector_ofs, buffer + bytes_written, chunk_size);
+#if 0
         if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE) {
             /* Write full sector directly to disk. */
             block_write(fs_device, sector_idx, buffer + bytes_written);
@@ -395,7 +400,7 @@ off_t inode_write_at(struct inode *inode, const void *buffer_, off_t size, off_t
             memcpy(bounce + sector_ofs, buffer + bytes_written, chunk_size);
             block_write(fs_device, sector_idx, bounce);
         }
-
+#endif
         /* Advance. */
         size -= chunk_size;
         offset += chunk_size;
