@@ -19,17 +19,30 @@ struct dir_entry {
     bool in_use;                        /*!< In use or free? */
 };
 
+struct inode_disk {
+  block_sector_t sectors[126]; /* Array of sectors; however, this has to be
+				  doubly indirect to allow for larger files */
+    off_t length;                       /*!< File size in bytes. */
+    unsigned magic;                     /*!< Magic number. */
+  //uint32_t unused[125];               /*!< Not used. */
+};
+
 /*! Creates a directory with space for ENTRY_CNT entries in the
     given SECTOR.  Returns true if successful, false on failure. */
 bool dir_create(block_sector_t sector, size_t entry_cnt) {
-    return inode_create(sector, entry_cnt * sizeof(struct dir_entry));
+    bool ret = inode_create(sector, entry_cnt * sizeof(struct dir_entry));
+    struct inode_disk d;
+    block_read(fs_device, sector, &d);
+    d.magic++;
+    block_write(fs_device, sector, &d);
+    return ret;
 }
 
 /*! Opens and returns the directory for the given INODE, of which
     it takes ownership.  Returns a null pointer on failure. */
 struct dir * dir_open(struct inode *inode) {
     struct dir *dir = calloc(1, sizeof(*dir));
-    if (inode != NULL && dir != NULL) {
+    if (inode != NULL && dir != NULL && isdir(inode)) {
         dir->inode = inode;
         dir->pos = 0;
         return dir;

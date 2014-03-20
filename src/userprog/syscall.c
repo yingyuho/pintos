@@ -9,6 +9,10 @@
 #include "devices/shutdown.h"
 #include "devices/input.h"
 
+#ifdef FILESYS
+#include "filesys/inode.h"
+#endif
+
 int process_wait(tid_t);
 void shutdown_power_off(void) NO_RETURN;
 
@@ -556,6 +560,67 @@ static void syscall_handler(struct intr_frame *f) {
 
     goto done;
 #endif /* VM */
+
+#ifdef FILESYS
+struct inode_disk {
+  uint32_t sectors[126]; /* Array of sectors; however, this has to be
+				  doubly indirect to allow for larger files */
+    off_t length;                       /*!< File size in bytes. */
+    unsigned magic;                     /*!< Magic number. */
+  //uint32_t unused[125];               /*!< Not used. */
+};
+struct inode {
+    struct list_elem elem;              /*!< Element in inode list. */
+    uint32_t sector;              /*!< Sector number of disk location. */
+    int open_cnt;                       /*!< Number of openers. */
+    bool removed;                       /*!< True if deleted, false otherwise. */
+    int deny_write_cnt;                 /*!< 0: writes ok, >0: deny writes. */
+    struct inode_disk data;             /*!< Inode content. */
+};
+  case SYS_CHDIR: // TODO: implement
+thread_exit();
+    break;
+  case SYS_MKDIR: // TODO: implement
+thread_exit();
+    break;
+  case SYS_READDIR: // TODO: implement
+thread_exit();
+    break;
+  case SYS_ISDIR:
+    get_user_arg(args, f->esp, 1);
+    f->eax = 0;
+    for (i = 0; i < cur->nfiles && i < 64; ++i) {
+      if (cur->files[0][i].fd == args[1]) {
+	f->eax = isdir(file_get_inode(cur->files[0][i].f));
+	break;
+      }
+    }
+    
+    for (i = 0; i < cur->nfiles - 64; ++i) {
+      if (cur->files[1][i].fd == args[1]) {
+	f->eax = isdir(file_get_inode(cur->files[1][i].f));
+	break;
+      }
+    }
+    break;
+  case SYS_INUMBER:
+    get_user_arg(args, f->esp, 1);
+    f->eax = 1;
+    for (i = 0; i < cur->nfiles && i < 64; ++i) {
+      if (cur->files[0][i].fd == args[1]) {
+	f->eax = ((struct inode *)file_get_inode(cur->files[0][i].f))->sector;
+	break;
+      }
+    }
+
+    for (i = 0; i < cur->nfiles - 64; ++i) {
+      if (cur->files[1][i].fd == args[1]) {
+	f->eax = ((struct inode *)file_get_inode(cur->files[1][i].f))->sector;
+	break;
+      }
+    }
+    break;
+#endif /* FILESYS */
   default:
     // I mean, yeah, there are other ways to implement this
     printf("unrecognized system call\n");

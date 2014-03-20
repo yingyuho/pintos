@@ -8,6 +8,8 @@
 #include "threads/malloc.h"
 
 /*! Identifies an inode. */
+/* This isn't actually used for anything, so I'm going to mangle it to
+   identify directories */
 #define INODE_MAGIC 0x494e4f44
 
 /*! On-disk inode.
@@ -35,6 +37,11 @@ struct inode {
     int deny_write_cnt;                 /*!< 0: writes ok, >0: deny writes. */
     struct inode_disk data;             /*!< Inode content. */
 };
+
+// self-explanatory
+bool isdir(struct inode *n) {
+  return !(n->data.magic - INODE_MAGIC - 1);
+}
 
 /*! Returns the block device sector that contains byte offset POS
     within INODE.
@@ -73,8 +80,6 @@ bool inode_create(block_sector_t sector, off_t length) {
     struct inode_disk *disk_inode = NULL;
     bool success = false;
 
-    //printf("Creating file of size %d at sector %d\n", length, sector);
-
     ASSERT(length >= 0);
 
     /* If this assertion fails, the inode structure is not exactly
@@ -86,18 +91,6 @@ bool inode_create(block_sector_t sector, off_t length) {
         size_t sectors = bytes_to_sectors(length);
         disk_inode->length = length;
         disk_inode->magic = INODE_MAGIC;
-	/*
-        if (free_map_allocate(sectors, &disk_inode->start)) {
-            block_write(fs_device, sector, disk_inode);
-            if (sectors > 0) {
-                static char zeros[BLOCK_SECTOR_SIZE];
-                size_t i;
-              
-                for (i = 0; i < sectors; i++) 
-                    block_write(fs_device, disk_inode->start + i, zeros);
-            }
-            success = true; 
-	    } */
 	size_t i, j;
 	for (i = 0; sectors > 0; ++i) {
 	  // Get a block to hold (real) sector pointers
@@ -109,7 +102,6 @@ bool inode_create(block_sector_t sector, off_t length) {
 	      if (free_map_allocate(1, tmp+j)) {
 		static char zeros[BLOCK_SECTOR_SIZE];
 		block_write(fs_device, tmp[j], zeros);
-		//printf("Writing to %d at line %d\n", tmp[j], __LINE__);
 	      }
 	      else {
 		// fail out, freeing all blocks
@@ -122,7 +114,6 @@ bool inode_create(block_sector_t sector, off_t length) {
 	      }
 	    }
 	    if (!success) {
-	      //printf("Writing to %d at line %d\n", disk_inode->sectors[i], __LINE__);
 	      block_write(fs_device, disk_inode->sectors[i], tmp);
 	    }
 	    free(tmp);
@@ -144,7 +135,6 @@ bool inode_create(block_sector_t sector, off_t length) {
 	}
 	else {
 	  success = true;
-	  //printf("Writing to %d at line %d\n", sector, __LINE__);
 	  block_write(fs_device, sector, disk_inode);
 	}
 	
@@ -295,9 +285,8 @@ off_t inode_read_at(struct inode *inode, void *buffer_, off_t size, off_t offset
 
 /*! Writes SIZE bytes from BUFFER into INODE, starting at OFFSET.
     Returns the number of bytes actually written, which may be
-    less than SIZE if end of file is reached or an error occurs.
-    (Normally a write at end of file would extend the inode, but
-    growth is not yet implemented.) */
+    less than SIZE if an error occurs or there is not enough
+    space on the disk) */
 off_t inode_write_at(struct inode *inode, const void *buffer_, off_t size, off_t offset) {
     const uint8_t *buffer = buffer_;
     off_t bytes_written = 0;
@@ -309,6 +298,10 @@ off_t inode_write_at(struct inode *inode, const void *buffer_, off_t size, off_t
 
     if (offset + size > inode->data.length) {
       // Extend the file appropriately
+
+      // An interesting approach (with respect to synchronization) is to
+      // write a modified byte_to_sector() that extends the file, and only
+      // extend up to offset in this loop
       int ext_sectors = bytes_to_sectors(offset + size) - bytes_to_sectors(inode->data.length);
       if (inode->data.length % BLOCK_SECTOR_SIZE)
 	inode->data.length += BLOCK_SECTOR_SIZE - (inode->data.length % BLOCK_SECTOR_SIZE);
@@ -355,6 +348,11 @@ off_t inode_write_at(struct inode *inode, const void *buffer_, off_t size, off_t
       }
       free(tmp);
       inode->data.length = offset + size;
+      // This is the synchronization of the file extension with reads; the new
+      // length is not written until the block is deallocated. This may need
+      // to change with buffer cache enabled (in this case we need to not
+      // write the new length back to the buffer cache until we're done
+      // writing data)
       block_write(fs_device, inode->sector, &inode->data);
     }
 
