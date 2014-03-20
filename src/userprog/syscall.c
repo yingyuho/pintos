@@ -625,11 +625,16 @@ static void syscall_handler(struct intr_frame *f) {
     file = find_file(args[1]);
     if (file && isdir(file->inode)) {
       struct dir *dir = dir_open(inode_reopen(file->inode));
+      if (dir == NULL) // i.e. dir was removed; of course it is empty
+	break;
+      // this looks like a poor implementation and it kind of is, but
+      // it should be right
       dir->pos = file->pos;
       f->eax = dir_readdir(dir, args[2]);
       file->pos = dir->pos;
-      // I should probably change the implementations of seek() and read() so that
-      // they don't affect pos for directories since I'm doing this, but I kind of don't care
+      // I should probably change the implementations of seek() and
+      // read() so that they don't affect pos for directories since
+      // I'm doing this, but I kind of don't care
     }
 
     break;
