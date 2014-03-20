@@ -3,31 +3,40 @@
 #include <hash.h>
 #include <round.h>
 #include <string.h>
+#include <stdio.h>
+#include <bitmap.h>
+#include <stdbool.h>
 
 #include "threads/vaddr.h"
 #include "threads/palloc.h"
 #include "threads/synch.h"
+#include "threads/thread.h"
 #include "threads/malloc.h"
+#include "threads/interrupt.h"
+#include "filesys/filesys.h"
 
 struct block {
-  char c[BLOCK_SECTOR_SIZE];
+  uint8_t byte[BLOCK_SECTOR_SIZE];
 };
 
 enum cache_flags {
-  CACHE_PRESENT =   0x01,
+  CACHE_PINNED =    0x01,
   CACHE_ACCESS =    0x02,
   CACHE_DIRTY =     0x04
 };
+
+#define CACHE_SEMA_NUM 16
 
 struct cache_entry {
   block_sector_t sector;
   struct block *data;
 
-  size_t prev;
-  size_t next;
+  int32_t prev;
+  int32_t next;
 
   uint32_t flags;
 
+  struct semaphore sema;
   struct hash_elem elem;
 };
 
@@ -35,45 +44,262 @@ static struct cache_entry *cache_header;
 
 static struct block *cache_data;
 
-static struct cache_entry *clock_hand;
-static struct cache_entry *empty_list;
+static int32_t clock_hand;
+static int32_t empty_list;
 
 static struct lock cache_lock;
 
-static inline size_t *prev(size_t i) {
+static struct hash cache_table;
+
+static struct bitmap *busy_map;      /* Record which slots are being accessed */
+static struct list busy_waiters;
+
+static void cache_lock_acquire(size_t idx);
+
+static void cache_lock_release(size_t idx);
+
+static inline int32_t *prev(int32_t i) {
   return &cache_header[i].prev;
 }
 
-static inline size_t *next(size_t i) {
+static inline int32_t *next(int32_t i) {
   return &cache_header[i].next;
 }
 
-static void header_insert(size_t after, size_t e) {
-  *next(e) = *next(after);
-  *next(after) = e;
+static void header_insert(size_t before, size_t e) {
+  *next(e) = before;
+  *prev(e) = *prev(before);
+  *next(*prev(e)) = e;
+  *prev(*next(e)) = e;
 }
 
-static void header_remove(size_t after) {
-  *next(after) = *next(*next(after));
+static void header_remove(size_t e) {
+  *next(*prev(e)) = *next(e);
+  *prev(*next(e)) = *prev(e);
+}
+
+
+static inline struct cache_entry *elem_to_header(const struct hash_elem *e) {
+  return hash_entry(e, struct cache_entry, elem);
+}
+
+static inline size_t header_to_idx(const struct cache_entry * const ce) {
+  return ce - cache_header;
+}
+
+/* Hashing function */
+static unsigned header_hash (const struct hash_elem *e, void *aux UNUSED) {
+  return hash_int(elem_to_header(e)->sector);
+}
+
+static bool header_less (const struct hash_elem *a, 
+                         const struct hash_elem *b, 
+                         void *aux UNUSED) {
+  return elem_to_header(a)->sector < elem_to_header(b)->sector;
 }
 
 void cache_init(void) {
   cache_data = palloc_get_multiple(PAL_ASSERT, 
     DIV_ROUND_UP(CACHE_SECTORS, PGSIZE / BLOCK_SECTOR_SIZE));
 
+  lock_init(&cache_lock);
+
+  list_init(&busy_waiters);
+  busy_map = bitmap_create(CACHE_SECTORS);
+
+  hash_init(&cache_table, header_hash, header_less, NULL);
+
+  uint32_t i;
   cache_header = malloc(sizeof(*cache_header) * CACHE_SECTORS);
   memset(cache_header, 0, sizeof(*cache_header) * CACHE_SECTORS);
 
-  lock_init(&cache_lock);
-
-  clock_hand = NULL;
-
-  uint32_t i;
   for (i = 0; i < CACHE_SECTORS; ++i) {
-    cache_header[i].data = cache_data + i;
-    // cache_header[i].prev = (i + CACHE_SECTORS - 1) % CACHE_SECTORS;
+    cache_header[i].data = &cache_data[i];
+    cache_header[i].prev = (i + CACHE_SECTORS - 1) % CACHE_SECTORS;
     cache_header[i].next = (i + 1) % CACHE_SECTORS;
   }
 
-  empty_list = cache_header + (CACHE_SECTORS - 1);
+  clock_hand = -1;
+  empty_list = 0;
+}
+
+static int32_t evict(void) {
+  int32_t idx;
+  int32_t i;
+  printf("evict\n");
+  idx = clock_hand;
+  header_remove(idx);
+
+  for (i = 0; i < CACHE_SEMA_NUM; ++i)
+      sema_down(&cache_header[idx].sema);
+
+  if (*next(clock_hand) != clock_hand)
+    clock_hand = *next(clock_hand);
+  else
+    clock_hand = -1;
+
+  return idx;
+}
+
+static int32_t blank(void) {
+  int32_t idx;
+  printf("blank\n");
+  idx = empty_list;
+  header_remove(empty_list);
+
+  if (*next(empty_list) != empty_list)
+    empty_list = *next(empty_list);
+  else
+    empty_list = -1;
+
+  return idx; 
+}
+
+
+static void push_cache(int32_t idx) {
+  if (clock_hand == -1) {
+    clock_hand = *prev(idx) = *next(idx) = idx;
+  } else {
+    header_insert(clock_hand, idx);
+  }
+}
+
+static int32_t get_cache(block_sector_t idx, struct cache_entry **ce) {
+  struct cache_entry secidx;
+  struct hash_elem *e;
+  int32_t old_sector = -1;
+  secidx.sector = idx;
+  e = hash_find(&cache_table, &secidx.elem);
+
+  if (e != NULL) {
+    *ce = hash_entry(e, struct cache_entry, elem);
+    old_sector = (*ce)->sector;
+    sema_down(&(*ce)->sema);
+    // printf("cache %x\n", ce - cache_header);
+  } else {
+
+    if (empty_list != -1) {
+      *ce = &cache_header[blank()];
+      old_sector = -1;
+    }
+    else {
+      *ce = &cache_header[evict()];
+      old_sector = (*ce)->sector;
+    }
+
+    (*ce)->sector = idx;
+
+    // printf("disk %x\n", header_to_idx(ce));
+    sema_init(&(*ce)->sema, 0);
+  }
+
+  return old_sector;
+}
+
+static void prepare_cache(int32_t old_sector, struct cache_entry *ce) {
+  struct hash_elem *e;
+  if (old_sector != (int32_t) ce->sector) {
+    if (old_sector >= 0) {
+      if (ce->flags & CACHE_DIRTY) {
+        printf("wb = %x\n", old_sector);
+        block_write(fs_device, old_sector, ce->data);
+      }
+      lock_acquire(&cache_lock);
+      hash_delete(&cache_table, &ce->elem);
+      lock_release(&cache_lock);
+    }
+
+    block_read(fs_device, ce->sector, ce->data);
+
+    lock_acquire(&cache_lock);
+    push_cache(header_to_idx(ce));
+    e = hash_insert(&cache_table, &ce->elem);
+    ASSERT(e == NULL);
+    sema_init(&ce->sema, CACHE_SEMA_NUM);
+    lock_release(&cache_lock);
+  }
+}
+
+void cache_read(block_sector_t idx, off_t ofs, uint8_t *dest, size_t size) {
+  struct cache_entry *ce;
+  int32_t old_sector;
+  printf("r idx = %x\n", idx);
+
+  lock_acquire(&cache_lock);
+  old_sector = get_cache(idx, &ce);
+  lock_release(&cache_lock);
+
+  prepare_cache(old_sector, ce);
+
+  printf("c = %x, d = %x, o = %x, s = %x\n", header_to_idx(ce), (uintptr_t) dest, ofs, size);
+  
+  memcpy(dest, (uint8_t *) ce->data + ofs, size);
+
+  sema_up(&ce->sema);
+}
+
+void cache_write(block_sector_t idx, off_t ofs, 
+                 const uint8_t *src, size_t size) {
+  struct cache_entry *ce;
+  int32_t old_sector;
+  printf("w idx = %x\n", idx);
+
+  lock_acquire(&cache_lock);
+  old_sector = get_cache(idx, &ce);
+  lock_release(&cache_lock);
+
+  prepare_cache(old_sector, ce);
+
+  printf("c = %x, s = %x, o = %x, s = %x\n", header_to_idx(ce), (uintptr_t) src, ofs, size);
+
+  memcpy((uint8_t *) ce->data + ofs, src, size);
+  ce->flags |= CACHE_DIRTY;
+  // block_write(fs_device, ce->sector, ce->data);
+
+  sema_up(&ce->sema);
+}
+
+static void cache_lock_acquire (size_t idx) {
+    enum intr_level old_level;
+    struct thread *cur;
+
+    ASSERT(!intr_context());
+    ASSERT((0 < idx) && (idx < CACHE_SECTORS));
+
+    cur = thread_current();
+
+    cur->cache_waiting = idx;
+
+    old_level = intr_disable();
+    while (bitmap_test(busy_map, idx)) {
+        list_push_back(&busy_waiters, &cur->elem);
+        thread_block();
+    }
+    bitmap_mark(busy_map, idx);
+    intr_set_level(old_level);
+}
+
+static void cache_lock_release (size_t idx) {
+    enum intr_level old_level;
+    struct list_elem *e;
+    struct thread *waiter;
+
+    ASSERT((0 < idx) && (idx < CACHE_SECTORS));
+
+    old_level = intr_disable();
+    if (!list_empty(&busy_waiters)) {
+        for (e = list_front(&busy_waiters); 
+             e != list_tail(&busy_waiters); 
+             e = list_next(e))
+        {
+            waiter = list_entry(e, struct thread, elem);
+            if (idx == waiter->cache_waiting) {
+                list_remove(e);
+                thread_unblock(waiter);
+                break;
+            }
+        }
+    }
+    bitmap_reset(busy_map, idx);
+    intr_set_level(old_level);
 }
