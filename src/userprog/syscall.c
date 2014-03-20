@@ -411,7 +411,7 @@ static void syscall_handler(struct intr_frame *f) {
       // Find the file
       file = find_file(args[1]);
 
-      if (file != NULL) {
+      if (file != NULL && (!isdir(file->inode))) {
         lock_acquire(&fs_lock);
         f->eax = file_read(file, (void *)args[2], args[3]);
         lock_release(&fs_lock);
@@ -597,6 +597,10 @@ struct inode {
     int deny_write_cnt;                 /*!< 0: writes ok, >0: deny writes. */
     struct inode_disk data;             /*!< Inode content. */
 };
+struct dir {
+    struct inode *inode;                /*!< Backing store. */
+    off_t pos;                          /*!< Current position. */
+};
 
   case SYS_CHDIR:
     get_user_arg(args, f->esp, 1);
@@ -610,12 +614,21 @@ struct inode {
     file_close(file);
     f->eax = 1;
     break;
-  case SYS_MKDIR: // TODO: implement
+  case SYS_MKDIR:
     get_user_arg(args, f->esp, 1);
     f->eax = filesys_mkdir_rel(cur->curdir, (char *)args[1]);
     break;
   case SYS_READDIR: // TODO: implement
-thread_exit();
+    get_user_arg(args, f->esp, 1);
+    get_user_arg(args, f->esp, 2);
+
+    file = find_file(args[1]);
+    if (file && isdir(file->inode)) {
+    }
+    struct dir *dir = dir_open(inode_reopen(file->inode));
+    dir->pos = file->pos;
+    f->eax = dir_readdir(dir, args[2]);
+    file->pos = dir->pos;
     break;
   case SYS_ISDIR:
     get_user_arg(args, f->esp, 1);
@@ -653,7 +666,6 @@ thread_exit();
     break;
 #endif /* FILESYS */
   default:
-    // I mean, yeah, there are other ways to implement this
     printf("unrecognized system call\n");
     thread_exit();
   }

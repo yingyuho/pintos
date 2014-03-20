@@ -74,6 +74,12 @@ bool filesys_create(const char *name, off_t initial_size) {
     return success;
 }
 
+struct file {
+    struct inode *inode;        /*!< File's inode. */
+    off_t pos;                  /*!< Current position. */
+    bool deny_write;            /*!< Has file_deny_write() been called? */
+};
+
 // opens the file with the given name relative to the given directory (or
 // not, if name starts with '/')
 // this function has a lot of warnings, due probably to being poorly implemented
@@ -152,6 +158,7 @@ struct file * filesys_open_rel(struct dir *d_, const char *name) {
   }
   // If we got here, then we're opening a directory!
   f = file_open(inode_reopen(d->inode));
+  f->pos = d->pos;
   dir_close(d);
   palloc_free_page(namecpy);
   return f;

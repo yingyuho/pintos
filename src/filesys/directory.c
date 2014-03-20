@@ -42,9 +42,6 @@ bool dir_create(block_sector_t sector, size_t entry_cnt, block_sector_t parent) 
     struct dir *dir = dir_open(inode_open(sector));
     dir_add(dir, ".", sector);
     dir_add(dir, "..", parent);
-    char n[NAME_MAX + 1];
-    dir_readdir(dir,n);
-    dir_readdir(dir,n);
     dir_close(dir);
     return true;
 }
@@ -56,6 +53,9 @@ struct dir * dir_open(struct inode *inode) {
     if (inode != NULL && dir != NULL && isdir(inode)) {
         dir->inode = inode;
         dir->pos = 0;
+	char n[NAME_MAX + 1];
+	dir_readdir(dir,n);
+	dir_readdir(dir,n);
         return dir;
     }
     else {
