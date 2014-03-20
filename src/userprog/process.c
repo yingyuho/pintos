@@ -74,6 +74,11 @@ static void start_process(void *file_name_) {
 
     thread_current()->ashes->load_success = success;
 
+#ifdef FILESYS
+    if (thread_current()->curdir == NULL)
+      thread_current()->curdir = dir_open_root();
+#endif
+
     sema_up(&thread_current()->load_done);
 
     /* If load failed, quit. */
@@ -192,6 +197,12 @@ void process_exit(void) {
     free(iter_free);
   }
 #endif /* VM */
+
+#ifdef FILESYS
+    // clean up cwd
+    if (cur->curdir)
+      dir_close(cur->curdir);
+#endif
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */

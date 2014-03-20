@@ -160,6 +160,11 @@ struct thread {
     //bool load_success;
 #endif /* USERPROG */
 
+#ifdef FILESYS
+  struct dir *curdir;
+  size_t cache_waiting;
+#endif /* FILESYS */
+
     /*! Owned by thread.c. */
     /**@{*/
     unsigned magic;                     /* Detects stack overflow. */

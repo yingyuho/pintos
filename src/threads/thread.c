@@ -18,6 +18,10 @@
 #include "userprog/process.h"
 #endif
 
+#ifdef FILESYS
+#include "filesys/directory.h"
+#endif
+
 /*! Random value for struct thread's `magic' member.
     Used to detect stack overflow.  See the big comment at the top
     of thread.h for details. */
@@ -121,6 +125,10 @@ void thread_init(void) {
 #ifdef USERPROG
     /* Init ashes */
     list_init(&initial_thread->children);
+#endif
+
+#ifdef FILESYS
+    initial_thread->curdir = NULL;
 #endif
 }
 
@@ -352,6 +360,13 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
     sema_init(&t->load_done, 0);
 #endif
 
+#ifdef FILESYS
+    if (thread_current()->curdir)
+      t->curdir = dir_reopen(thread_current()->curdir);
+    else
+      t->curdir = NULL;
+#endif
+
     /* Stack frame for kernel_thread(). */
     kf = alloc_frame(t, sizeof *kf);
     kf->eip = NULL;
@@ -488,7 +503,6 @@ void thread_exit(void) {
     if (cur->ashes)
         sema_up(&cur->ashes->sema);
 #endif
-
 
     /* Remove thread from all threads list, set our status to dying,
        and schedule another process.  That process will destroy us

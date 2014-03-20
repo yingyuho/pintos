@@ -8,6 +8,11 @@
 #include "filesys/directory.h"
 #include "filesys/cache.h"
 
+struct dir {
+  struct inode *inode;                /*!< Backing store. */
+  off_t pos;                          /*!< Current position. */
+};
+
 /*! Partition that contains the file system. */
 struct block *fs_device;
 
@@ -52,6 +57,89 @@ bool filesys_create(const char *name, off_t initial_size) {
     return success;
 }
 
+// opens the file with the given name relative to the given directory (or
+// not, if name starts with '/')
+// this function has a lot of warnings, due probably to being poorly implemented
+struct file * filesys_open_rel(struct dir *d_, const char *name) {
+  char *saveptr, *n, *namecpy;
+  struct inode *in;
+
+  struct dir *d = dir_reopen(d_); // To avoid messing up the thread copy
+  struct file *f;
+  if (strlen(name) == 0)
+    return NULL;
+
+  namecpy = palloc_get_page(0);
+  if (namecpy == NULL)
+    return NULL;
+  memcpy(namecpy, name, strlen(name)+1);
+  if (name[0] == '/') {
+    dir_close(d);
+    d = dir_open_root();
+  }
+  n = strtok_r(namecpy, "/", &saveptr);
+  if (n == NULL) { // it's the root directory
+    f = d->inode;
+    free(d);
+    palloc_free_page(namecpy);
+    return f;
+  }
+  if (dir_lookup(d, n, &in)) {
+    dir_close(d);
+    if (isdir(in))
+      d = dir_open(in);
+    else {
+      // Well, then it must be a file
+      if (strtok_r(NULL, "/", &saveptr)) {
+	// Means we're trying to use something that's not a directory as one
+        inode_close(in);
+	palloc_free_page(namecpy);
+	return NULL;
+      }
+      else {
+	f = file_open(in);
+	palloc_free_page(namecpy);
+	return f;
+      }
+    }
+  }
+  else {
+    palloc_free_page(namecpy);
+    return NULL; // some part of the filename is wrong
+  }
+  while (n = strtok_r(NULL, "/", &saveptr)) {
+    // Look for and open the relevant directory
+    if(dir_lookup(d, n, &in)) {
+      dir_close(d);
+      if (isdir(in))
+      d = dir_open(in);
+    else {
+      // Well, then it must be a file
+      if (strtok_r(NULL, "/", &saveptr)) {
+	// Means we're trying to use something that's not a directory as one
+        inode_close(in);
+	palloc_free_page(namecpy);
+	return NULL;
+      }
+      else {
+	f = file_open(in);
+	palloc_free_page(namecpy);
+	return f;
+      }
+    }
+    }
+    else {
+      palloc_free_page(namecpy);
+      return NULL; // some part of the filename is wrong
+    }
+  }
+  // If we got here, then we're opening a directory!
+  f = d->inode;
+  free(d);
+  palloc_free_page(namecpy);
+  return f;
+}
+
 /*! Opens the file with the given NAME.  Returns the new file if successful
     or a null pointer otherwise.  Fails if no file named NAME exists,
     or if an internal memory allocation fails. */
@@ -81,7 +169,7 @@ bool filesys_remove(const char *name) {
 static void do_format(void) {
     printf("Formatting file system...");
     free_map_create();
-    if (!dir_create(ROOT_DIR_SECTOR, 16))
+    if (!dir_create(ROOT_DIR_SECTOR, 16, ROOT_DIR_SECTOR))
         PANIC("root directory creation failed");
     free_map_close();
     printf("done.\n");

@@ -307,7 +307,8 @@ static void syscall_handler(struct intr_frame *f) {
 
     // Try to open the file
     lock_acquire(&fs_lock);
-    struct file *ff = filesys_open((char *)args[1]);
+    //struct file *ff = filesys_open((char *)args[1]);
+    struct file *ff = filesys_open_rel(cur->curdir, (char *)args[1]);
     lock_release(&fs_lock);
     if (ff == NULL) {
       // File couldn't be opened (for whatever reason)
