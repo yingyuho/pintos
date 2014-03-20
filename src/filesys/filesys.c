@@ -89,8 +89,7 @@ struct file * filesys_open_rel(struct dir *d_, const char *name) {
 
   struct dir *d = dir_reopen(d_); // To avoid messing up the thread copy
   struct file *f;
-  // (d is null if the directory was deleted)
-  if (strlen(name) == 0 || (d == NULL))
+  if (strlen(name) == 0)
     return NULL;
 
   namecpy = palloc_get_page(0);
@@ -178,7 +177,7 @@ bool filesys_mkdir_rel(struct dir *d_, const char *name) {
   
   struct dir *d = dir_reopen(d_); // To avoid messing up the thread copy
   struct file *f;
-  if (strlen(name) == 0 || (d == NULL))
+  if (strlen(name) == 0)
     return false;
 
   namecpy = palloc_get_page(0);
@@ -261,12 +260,11 @@ bool filesys_remove(const char *name) {
 }
 
 bool filesys_remove_rel(struct dir *d_, const char *name) {
-  char *saveptr, *n, *namecpy, *nt;
+  char *saveptr, *n, *namecpy;
   struct inode *in;
- 
   struct dir *d = dir_reopen(d_), *d2; // To avoid messing up the thread copy
   struct file *f;
-  if (strlen(name) == 0 || d == NULL)
+  if (strlen(name) == 0)
     return false;
 
   namecpy = palloc_get_page(0);
@@ -279,7 +277,6 @@ bool filesys_remove_rel(struct dir *d_, const char *name) {
     dir_close(d);
     d = dir_open_root();
   }
-  d2 = NULL;
   
   n = strtok_r(namecpy, "/", &saveptr);
   if (n == NULL) {
@@ -289,9 +286,6 @@ bool filesys_remove_rel(struct dir *d_, const char *name) {
   while(n) {
     if (dir_lookup(d, n, &in)) {
       if (isdir(in)) {
-	if (d2)
-	  dir_close(d2);
-	d2 = dir_reopen(d);
 	dir_close(d);
 	d = dir_open(in);
       }
@@ -331,13 +325,7 @@ bool filesys_remove_rel(struct dir *d_, const char *name) {
     else {
       break;
     }
-  }
-  if (d2) {
-    bool suc = dir_remove(d2,n);
-    dir_close(d2);
-    dir_close(d);
-    palloc_free_page(namecpy);
-    return suc;
+    n=strtok_r(NULL, "/", &saveptr);
   }
   printf("wuh?\n");
   dir_close(d);
@@ -351,7 +339,7 @@ bool filesys_create_rel(struct dir *d_, const char *name, unsigned int size) {
   
   struct dir *d = dir_reopen(d_); // To avoid messing up the thread copy
   struct file *f;
-  if (strlen(name) == 0 || d == NULL)
+  if (strlen(name) == 0)
     return false;
 
   namecpy = palloc_get_page(0);
