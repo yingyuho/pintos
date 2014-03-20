@@ -27,6 +27,16 @@ struct inode_disk {
   //uint32_t unused[125];               /*!< Not used. */
 };
 
+struct inode {
+    struct list_elem elem;              /*!< Element in inode list. */
+    block_sector_t sector;              /*!< Sector number of disk location. */
+    int open_cnt;                       /*!< Number of openers. */
+    bool removed
+;                       /*!< True if deleted, false otherwise. */
+    int deny_write_cnt;                 /*!< 0: writes ok, >0: deny writes. */
+    struct inode_disk data;             /*!< Inode content. */
+};
+
 /*! Creates a directory with space for ENTRY_CNT entries in the
     given SECTOR.  Returns true if successful, false on failure. */
 bool dir_create(block_sector_t sector, size_t entry_cnt, block_sector_t parent) {
@@ -50,15 +60,10 @@ bool dir_create(block_sector_t sector, size_t entry_cnt, block_sector_t parent) 
     it takes ownership.  Returns a null pointer on failure. */
 struct dir * dir_open(struct inode *inode) {
     struct dir *dir = calloc(1, sizeof(*dir));
-    if (inode != NULL && dir != NULL && isdir(inode)) {
+    if (inode != NULL && dir != NULL && isdir(inode) && (!inode->removed)) {
         dir->inode = inode;
         dir->pos = 0;
 	char n[NAME_MAX + 1];
-	dir_readdir(dir,n);
-	while (strcmp(n, ".") ^ strcmp(n, "..")) {
-	  if (!dir_readdir(dir,n))
-	    break;
-	}
         return dir;
     }
     else {
@@ -235,7 +240,7 @@ done:
     true if successful, false if the directory contains no more entries. */
 bool dir_readdir(struct dir *dir, char name[NAME_MAX + 1]) {
     struct dir_entry e;
-
+    
     while (inode_read_at(dir->inode, &e, sizeof(e), dir->pos) == sizeof(e)) {
         dir->pos += sizeof(e);
         if (e.in_use && strcmp(e.name, ".") && strcmp(e.name, "..")) {

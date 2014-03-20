@@ -23,6 +23,11 @@ Ying-Yu Ho      <yingyu@caltech.edu>
 >> If you have any preliminary comments on your submission, notes for the
 >> TAs, or extra credit, please give them here.
 
+A lot of system calls should really have special treatment for directories,
+especially because I'm abusing some of the variables. (read(), for example,
+will have unexpected results in combination with readdir(), because pos
+is set to the dir's pos rather than the file's for readdir())
+
 >> Please cite any offline or online sources you consulted while
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course instructors.
@@ -36,8 +41,16 @@ Ying-Yu Ho      <yingyu@caltech.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+struct inode_disk {
+  uint32_t sectors[126]; // array of sectors
+    off_t length;   // file size in bytes
+    unsigned magic; // used to identify directories
+};
+
 >> A2: What is the maximum size of a file supported by your inode
 >> structure?  Show your work.
+
+126 * 128 * 512B = 8257536 bytes
 
 ---- SYNCHRONIZATION ----
 
@@ -51,6 +64,9 @@ Ying-Yu Ho      <yingyu@caltech.edu>
 >> nonzero data, A is not allowed to see all zeros.  Explain how your
 >> code avoids this race.
 
+The length of the file is not updated until the write is finished; the
+reader will not see any of what B writes.
+
 >> A5: Explain how your synchronization design provides "fairness".
 >> File access is "fair" if readers cannot indefinitely block writers
 >> or vice versa.  That is, many processes reading from a file cannot
@@ -58,8 +74,8 @@ Ying-Yu Ho      <yingyu@caltech.edu>
 >> processes writing to a file cannot prevent another process forever
 >> from reading the file.
 
-
-No blocking actually occurs between readers and writers.
+All reading and writing is done one sector at a time and do not block
+each other.
 
 ---- RATIONALE ----
 
@@ -69,10 +85,8 @@ No blocking actually occurs between readers and writers.
 >> structure, and what advantages and disadvantages does your
 >> structure have, compared to a multilevel index?
 
-
 It is a multilevel index; the combination was chosen for simplicity of
-calculation and indexing. It has slightly more overhead than strictly
-necessary.
+calculation and indexing.
 
                             SUBDIRECTORIES
                             ==============
@@ -88,6 +102,12 @@ necessary.
 >> B2: Describe your code for traversing a user-specified path.  How
 >> do traversals of absolute and relative paths differ?
 
+A struct cur * keeps track of the directory during the traversal, and
+strtok_r() is used to get the next part of the path. The traversal
+of an absolute path starts at /, while the traversal of a relative
+path starts at the process's current directory (however, this
+distinction is made by the functions that do the traversal).
+
 ---- SYNCHRONIZATION ----
 
 >> B4: How do you prevent races on directory entries?  For example,
@@ -100,16 +120,10 @@ necessary.
 >> working directory?  If so, what happens to that process's future
 >> file system operations?  If not, how do you prevent it?
 
-Yes; the relevant directory calls simply fail if the underlying inode
-has been removed.
-
 ---- RATIONALE ----
 
 >> B6: Explain why you chose to represent the current directory of a
 >> process the way you did.
-
-It's represented as a pointer to a struct dir, making it easy to update
-and take up relatively little memory.
 
                              BUFFER CACHE
                              ============

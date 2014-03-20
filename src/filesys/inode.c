@@ -56,7 +56,7 @@ static block_sector_t byte_to_sector(const struct inode *inode, off_t pos) {
       // corresponding sector into memory!
       block_sector_t tmp[128];
       block_sector_t map = inode->data.sectors[pos / (128 * BLOCK_SECTOR_SIZE)];
-      block_read(fs_device, map, tmp);
+      block_read(fs_device, map, &tmp);
       return tmp[(pos / BLOCK_SECTOR_SIZE) % 128];
     }
     else
@@ -124,7 +124,8 @@ bool inode_create(block_sector_t sector, off_t length) {
 	    success = true;
 	  }
 	  if (success) {
-	    for (; i>=0; i--) {
+	    for (++i; i;) {
+	      --i;
 	      free_map_release(disk_inode->sectors[i], 1);
 	    }
 	  }
@@ -214,9 +215,9 @@ void inode_close(struct inode *inode) {
 	      // Read the appropriate thing into memory
 	      block_sector_t tmp[128];
 	      block_sector_t map = inode->data.sectors[i];
-	      block_read(fs_device, map, tmp);
-	      for (j = 0; j < 128 && sectors; ++j, --sectors) {
-	        free_map_release(tmp[j], 1);
+	      block_read(fs_device, map, &tmp);
+	      for (j = 0; j < 128 && sectors; ++i, --sectors) {
+	        free_map_release(tmp[i], 1);
 	      }
 	      free_map_release(map,1);
 	    }
@@ -310,9 +311,8 @@ off_t inode_write_at(struct inode *inode, const void *buffer_, off_t size, off_t
       int i = (inode->data.length) / (128 * BLOCK_SECTOR_SIZE);
       int j = ((inode->data.length) / BLOCK_SECTOR_SIZE) % 128;
       block_sector_t *tmp = (block_sector_t *)malloc(512);
-
       // Deal with the current indirect block if appropriate
-      if (tmp && j) {
+      if (j) {
 	block_read(fs_device, inode->data.sectors[i], tmp);
 	for (; ext_sectors && j<128; ++j, --ext_sectors) {
 	  if (free_map_allocate(1, tmp+j)) {
@@ -349,11 +349,8 @@ off_t inode_write_at(struct inode *inode, const void *buffer_, off_t size, off_t
 	  free_map_release(tmp[j], 1);
 	}
       }
-      if (tmp)
-	free(tmp);
-
-      if (inode->data.length > offset + size)
-	inode->data.length = offset + size;
+      free(tmp);
+      inode->data.length = offset + size;
       // This is the synchronization of the file extension with reads; the new
       // length is not written until the block is deallocated. This may need
       // to change with buffer cache enabled (in this case we need to not
