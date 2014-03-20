@@ -50,6 +50,31 @@ bool filesys_create(const char *name, off_t initial_size) {
     return success;
 }
 
+// opens the file with the given name relative to the given directory
+struct file * filesys_open_rel(struct dir *d, const char *name) {
+  char *saveptr, *n, *namecpy;
+  struct inode *in;
+  namecpy = malloc(strlen(name));
+  memcpy(namecpy, name, strlen(name)+1);
+  n = strtok_r(name, "/", &saveptr);
+  if (strlen(n) == 0) {
+    dir_close(d);
+    d = dir_open_root();
+  }
+  else {
+    while (n = strtok_r(NULL, "/", &saveptr)) {
+      // Look for and open the relevant directory
+      dir_lookup(d, n, &in);
+      dir_close(d);
+      d = dir_open(in);
+      if (d == NULL) {
+	return NULL; // some part of the filename is wrong
+      }
+    }
+  }
+  return d;
+}
+
 /*! Opens the file with the given NAME.  Returns the new file if successful
     or a null pointer otherwise.  Fails if no file named NAME exists,
     or if an internal memory allocation fails. */
