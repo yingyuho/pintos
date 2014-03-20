@@ -42,6 +42,9 @@ bool dir_create(block_sector_t sector, size_t entry_cnt, block_sector_t parent) 
     struct dir *dir = dir_open(inode_open(sector));
     dir_add(dir, ".", sector);
     dir_add(dir, "..", parent);
+    char n[NAME_MAX + 1];
+    dir_readdir(dir,n);
+    dir_readdir(dir,n);
     dir_close(dir);
     return true;
 }
@@ -197,6 +200,19 @@ bool dir_remove(struct dir *dir, const char *name) {
     inode = inode_open(e.inode_sector);
     if (inode == NULL)
         goto done;
+
+    if (isdir(inode)) {
+      // ruh roh :)
+      struct dir *d = dir_open(inode_reopen(inode));
+      char n[NAME_MAX + 1];
+      if (dir_readdir(d,n)) {
+	// Directory isn't empty
+	dir_close(d);
+	inode_close(inode);
+	return false;
+      }
+      dir_close(d);
+    }
 
     /* Erase directory entry. */
     e.in_use = false;

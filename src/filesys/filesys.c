@@ -243,8 +243,61 @@ bool filesys_remove(const char *name) {
     return success;
 }
 
-//bool filesys_remove_rel(struct dir *d_, const char *name) {
-//}
+bool filesys_remove_rel(struct dir *d_, const char *name) {
+  char *saveptr, *n, *namecpy;
+  struct inode *in;
+  
+  struct dir *d = dir_reopen(d_); // To avoid messing up the thread copy
+  struct file *f;
+  if (strlen(name) == 0)
+    return false;
+
+  namecpy = palloc_get_page(0);
+  if (namecpy == NULL)
+    return false;
+  memcpy(namecpy, name, strlen(name)+1);
+  if (name[0] == '/') {
+    dir_close(d);
+    d = dir_open_root();
+  }
+  
+  n = strtok_r(namecpy, "/", &saveptr);
+  if (n == NULL) {
+    // mkdir("/") shouldn't work
+    palloc_free_page(namecpy);
+    return false;
+  }
+  while(n) {
+    if (dir_lookup(d, n, &in)) {
+      if (isdir(in)) {
+	dir_close(d);
+	d = dir_open(in);
+      }
+      else {
+	// check whether it's the last token
+		if (strtok_r(NULL, "/", &saveptr)) {
+			// if not then fail out
+			palloc_free_page(namecpy);
+			return false;
+		}
+		else {
+			// if so, try to remove the file
+			bool suc = dir_remove(d, n);
+			palloc_free_page(namecpy);
+			return suc;
+		}
+      }
+    }
+    else {
+      // fail out
+	  palloc_free_page(namecpy);
+	return false;
+    }
+    n=strtok_r(NULL, "/", &saveptr);
+  }
+  palloc_free_page(namecpy);
+  return false;
+}
 
 bool filesys_create_rel(struct dir *d_, const char *name, unsigned int size) {
   char *saveptr, *n, *namecpy;

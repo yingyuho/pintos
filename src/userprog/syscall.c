@@ -11,6 +11,12 @@
 
 #ifdef FILESYS
 #include "filesys/inode.h"
+
+struct file {
+    struct inode *inode;        /*!< File's inode. */
+    off_t pos;                  /*!< Current position. */
+    bool deny_write;            /*!< Has file_deny_write() been called? */
+};
 #endif
 
 int process_wait(tid_t);
@@ -285,7 +291,11 @@ static void syscall_handler(struct intr_frame *f) {
     pin_frames(cur->PAGEDIR, (void *) args[1], 1);
 
     lock_acquire(&fs_lock);
+#ifdef FILESYS
+    f->eax = filesys_remove_rel(cur->curdir, (char *)args[1]);
+#else
     f->eax = filesys_remove((char *) args[1]);
+#endif
     lock_release(&fs_lock);
 
     goto done;
@@ -413,14 +423,14 @@ static void syscall_handler(struct intr_frame *f) {
     goto done;
 
   case SYS_WRITE:
-    // Using the second solution; we need to check that it's really valid to
-    // read the buffer
     get_user_arg(args, f->esp, 1);
     get_user_arg(args, f->esp, 2);
     get_user_arg(args, f->esp, 3);
 
-    // A fairly halfhearted check of whether the buffer is valid; every time
-    // we write some bytes, check whether the first and last bytes are valid
+    if (args[1] == 0) {
+      f->eax = 0;
+      break;
+    }
 
     if (args[1] == 1) { // stdout
       // We're writing to console so we'll always write everything
@@ -448,14 +458,19 @@ static void syscall_handler(struct intr_frame *f) {
       pin_frames(cur->PAGEDIR, (void *) args[2], args[3]);
 
       file = find_file(args[1]);
-
+      
       if (file != NULL) {
-        lock_acquire(&fs_lock);
-        f->eax = file_write(file, (void *)args[2], args[3]);
-        lock_release(&fs_lock);
+	if (isdir(file->inode))
+	  f->eax = -1;
+	else {
+	  lock_acquire(&fs_lock);
+	  f->eax = file_write(file, (void *)args[2], args[3]);
+	  lock_release(&fs_lock);
+	}
       }
-      else
+      else {
         f->eax = 0;
+      }
     }
 
     goto done;
@@ -582,12 +597,8 @@ struct inode {
     int deny_write_cnt;                 /*!< 0: writes ok, >0: deny writes. */
     struct inode_disk data;             /*!< Inode content. */
 };
-struct file {
-    struct inode *inode;        /*!< File's inode. */
-    off_t pos;                  /*!< Current position. */
-    bool deny_write;            /*!< Has file_deny_write() been called? */
-};
-  case SYS_CHDIR: // TODO: implement
+
+  case SYS_CHDIR:
     get_user_arg(args, f->esp, 1);
     struct file *file = filesys_open_rel(cur->curdir, (char *)args[1]);
     if (file == NULL) {
