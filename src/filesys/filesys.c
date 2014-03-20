@@ -158,7 +158,7 @@ struct file * filesys_open_rel(struct dir *d_, const char *name) {
   }
   // If we got here, then we're opening a directory!
   f = file_open(inode_reopen(d->inode));
-  f->pos = d->pos;
+  //f->pos = d->pos; // for readdir purposes
   dir_close(d);
   palloc_free_page(namecpy);
   return f;

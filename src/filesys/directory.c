@@ -55,7 +55,10 @@ struct dir * dir_open(struct inode *inode) {
         dir->pos = 0;
 	char n[NAME_MAX + 1];
 	dir_readdir(dir,n);
-	dir_readdir(dir,n);
+	while (strcmp(n, ".") ^ strcmp(n, "..")) {
+	  if (!dir_readdir(dir,n))
+	    break;
+	}
         return dir;
     }
     else {
@@ -235,7 +238,7 @@ bool dir_readdir(struct dir *dir, char name[NAME_MAX + 1]) {
 
     while (inode_read_at(dir->inode, &e, sizeof(e), dir->pos) == sizeof(e)) {
         dir->pos += sizeof(e);
-        if (e.in_use) {
+        if (e.in_use && strcmp(e.name, ".") && strcmp(e.name, "..")) {
             strlcpy(name, e.name, NAME_MAX + 1);
             return true;
         } 
