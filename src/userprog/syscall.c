@@ -625,6 +625,11 @@ static void syscall_handler(struct intr_frame *f) {
     file = find_file(args[1]);
     if (file && isdir(file->inode)) {
       struct dir *dir = dir_open(inode_reopen(file->inode));
+
+      if (dir == NULL) { // file was deleted
+	f->eax = false;
+	break;
+      }
       dir->pos = file->pos;
       f->eax = dir_readdir(dir, args[2]);
       file->pos = dir->pos;
