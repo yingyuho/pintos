@@ -65,7 +65,7 @@ struct inode_disk {
 >> code avoids this race.
 
 The length of the file is not updated until the write is finished; the
-reader will not see any of what B writes.
+reader will not see any of what B writes until then.
 
 >> A5: Explain how your synchronization design provides "fairness".
 >> File access is "fair" if readers cannot indefinitely block writers
@@ -97,6 +97,10 @@ calculation and indexing.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+struct thread {
+  struct dir *curdir; // current directory
+}
+
 ---- ALGORITHMS ----
 
 >> B2: Describe your code for traversing a user-specified path.  How
@@ -120,10 +124,16 @@ distinction is made by the functions that do the traversal).
 >> working directory?  If so, what happens to that process's future
 >> file system operations?  If not, how do you prevent it?
 
+It is allowed; the relevant file system operations check whether
+the underlying inode has been removed.
+
 ---- RATIONALE ----
 
 >> B6: Explain why you chose to represent the current directory of a
 >> process the way you did.
+
+Representing it as a pointer makes it take up less space and makes it
+easier to update.
 
                              BUFFER CACHE
                              ============
