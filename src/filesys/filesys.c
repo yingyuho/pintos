@@ -64,6 +64,9 @@ struct file * filesys_open_rel(struct dir *d_, const char *name) {
 
   struct dir *d = dir_reopen(d_); // To avoid messing up the thread copy
   struct file *f;
+  if (strlen(name) == 0)
+    return NULL;
+
   namecpy = palloc_get_page(0);
   if (namecpy == NULL)
     return NULL;
@@ -73,10 +76,11 @@ struct file * filesys_open_rel(struct dir *d_, const char *name) {
     d = dir_open_root();
   }
   n = strtok_r(namecpy, "/", &saveptr);
-  if (n == NULL) {
-    dir_close(d);
+  if (n == NULL) { // it's the root directory
+    f = d->inode;
+    free(d);
     palloc_free_page(namecpy);
-    return NULL;
+    return f;
   }
   if (dir_lookup(d, n, &in)) {
     dir_close(d);
