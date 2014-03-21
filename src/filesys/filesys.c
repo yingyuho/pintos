@@ -9,6 +9,7 @@
 #include "filesys/cache.h"
 
 #include <list.h>
+#include "threads/synch.h"
 
 struct dir {
   struct inode *inode;                /*!< Backing store. */
@@ -23,11 +24,13 @@ struct inode_disk {
 };
 struct inode {
     struct list_elem elem;              /*!< Element in inode list. */
-    uint32_t sector;              /*!< Sector number of disk location. */
+    block_sector_t sector;              /*!< Sector number of disk location. */
     int open_cnt;                       /*!< Number of openers. */
-    bool removed;                       /*!< True if deleted, false otherwise. */
+    bool removed
+;                       /*!< True if deleted, false otherwise. */
     int deny_write_cnt;                 /*!< 0: writes ok, >0: deny writes. */
     struct inode_disk data;             /*!< Inode content. */
+  struct lock extend_lock; // lock used to synchronize extends
 };
 
 /*! Partition that contains the file system. */
@@ -210,10 +213,13 @@ bool filesys_mkdir_rel(struct dir *d_, const char *name) {
       if (strtok_r(NULL, "/", &saveptr) == NULL) {
 	// Make a new directory and add it to d
 	uint32_t sec;
-	free_map_allocate(1, &sec);
-	dir_create(sec, 16, d->inode->sector);
-	dir_add(d, n, sec);
-	return true;
+	bool suc = free_map_allocate(1, &sec);
+	if (suc) {
+	  dir_create(sec, 16, d->inode->sector);
+	  dir_add(d, n, sec);
+	}
+	palloc_free_page(namecpy);
+	return suc;
       }
       else {
 	palloc_free_page(namecpy);
@@ -365,10 +371,13 @@ bool filesys_create_rel(struct dir *d_, const char *name, unsigned int size) {
       if (strtok_r(NULL, "/", &saveptr) == NULL) {
 	// Make a new directory and add it to d
 	uint32_t sec;
-	free_map_allocate(1, &sec);
-	inode_create(sec, size);
-	dir_add(d, n, sec);
-	return true;
+	bool suc = free_map_allocate(1, &sec);
+	if (suc) {
+	  inode_create(sec, size);
+	  dir_add(d, n, sec);
+	}
+	palloc_free_page(namecpy);
+	return suc;
       }
       else {
 	palloc_free_page(namecpy);
