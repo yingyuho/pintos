@@ -163,7 +163,7 @@ void cache_init(void) {
 
   /* Start background services */
   thread_create("writed", PRI_DEFAULT, write_behind_daemon, NULL);
-  thread_create("readd", PRI_DEFAULT, read_ahead_daemon, NULL);
+  thread_create("readd", PRI_DEFAULT + 1, read_ahead_daemon, NULL);
 }
 
 /* Find a cache slot to evict */
@@ -183,10 +183,10 @@ static int32_t evict(void) {
     idx = *next(idx);
   } while (idx != clock_hand);
 
-  /* Not dirty */
+  /* Not accessed recently */
   if (!found) {
     do {
-      if (!(cache_header[idx].flags & CACHE_DIRTY)) {
+      if (!(cache_header[idx].flags & CACHE_ACCESS)) {
         found = true;
         break;
       }
@@ -194,10 +194,10 @@ static int32_t evict(void) {
     } while (idx != clock_hand);
   }
 
-  /* Not accessed recently */
+  /* Not dirty */
   if (!found) {
     do {
-      if (!(cache_header[idx].flags & CACHE_ACCESS)) {
+      if (!(cache_header[idx].flags & CACHE_DIRTY)) {
         found = true;
         break;
       }
@@ -314,7 +314,6 @@ static struct cache_entry *fetch(block_sector_t idx) {
 
 /* Request read-ahead */
 void cache_prefetch(block_sector_t idx) {
-  return;
   if (running && sema_try_down(&read_ahead_sema_w)) {
     read_ahead_sector = idx;
     sema_up(&read_ahead_sema_r);
@@ -475,5 +474,6 @@ static void read_ahead_daemon(void *aux UNUSED) {
 
     /* Load data from disk into cache by fake reading */
     cache_read(idx, 0, &dest, 0);
+    // printf("read_ahead_daemon\n");
   }
 }

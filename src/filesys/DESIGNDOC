@@ -144,14 +144,87 @@ easier to update.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+/* Stores data in a sector */
+struct block {
+  uint8_t byte[BLOCK_SECTOR_SIZE];
+};
+
+enum cache_flags {
+  CACHE_PRESENT =   0x01, /* Has data */
+  CACHE_ACCESS =    0x02, /* Accessed recently */
+  CACHE_DIRTY =     0x04, /* Dirty */
+  CACHE_EMPTYLIST = 0x10, /* In the empty list */
+  CACHE_CLOCKLIST = 0x20  /* Evictable */
+};
+
+/* Parameter for mimicking RW lock with semaphore */
+#define CACHE_SEMA_NUM 16
+
+struct cache_entry {
+  block_sector_t sector;  /* Sector index */
+  struct block *data;     /* Pointer to content */
+
+  int32_t prev;           /* Previous one in the list */
+  int32_t next;           /* Next one in the list */
+
+  uint32_t flags;
+
+  struct semaphore sema;  /* Read and write semaphores */
+  struct hash_elem elem;
+};
+
+/* Start of cache descriptor */
+static struct cache_entry *cache_header;
+
+/* Start of cache storage */
+static struct block *cache_data;
+
+/* Candidate cache slot to evict */
+static int32_t clock_hand;
+
+/* Unused cache slots */
+static int32_t empty_list;
+
+/* Protects cache data structure */
+static struct lock cache_lock;
+
+/* Lookup cache descriptor from sector index */
+static struct hash cache_table;
+
+/* Store the read-ahead sector */
+static block_sector_t read_ahead_sector;
+/* Semaphores for passing read_ahead_sector to background service */
+static struct semaphore read_ahead_sema_r;
+static struct semaphore read_ahead_sema_w;
+
+/* Indicates whether the cache system is running */
+static bool running;
+
 ---- ALGORITHMS ----
 
 >> C2: Describe how your cache replacement algorithm chooses a cache
 >> block to evict.
 
+We implemented Not Recently Used policy.
+
 >> C3: Describe your implementation of write-behind.
 
+We run a background thread that sleep for 1 tick and then scan through 
+all dirty cache slots. For each dirty cache slot, the routine tries to 
+obtain exclusive control (16 semaphores, see C5) before writing the data 
+back to the disk. If exclusive control is not available immediately due 
+to other process' reading or writing, write-back for that cache slot is
+skipped. The above operations are repeated until the cache system is
+shut down.
+
 >> C4: Describe your implementation of read-ahead.
+
+A function sets up the sector number to be read and ups a semaphore to 
+notify a background thread of the request. The background thread downs 
+the semaphore and then read the data into cache. At most one sector number
+can be requested for read-ahead before the background thread has opportunity
+to run and take away that sector number; otherwise the second and later 
+requests are ignored.
 
 ---- SYNCHRONIZATION ----
 
@@ -159,13 +232,29 @@ easier to update.
 >> buffer cache block, how are other processes prevented from evicting
 >> that block?
 
+Each cache slot has a semaphore initialized to a positive number (16).
+For reading or writing, the semaphore is down by 1, the operation is 
+performed, and then the semaphore is up by 1. For eviction, the semaphore
+is down by 16 (sema_down 16 times) before continuing. Therefore, many (16)
+reading and writing operations can be performed on the same cache slot 
+in parallel. When the cache slot is about to be evicted, the capacity of
+parallel reading/writing is gradually reduced to 0, at which point the 
+eviction routine has the needed exclusive control to proceed.
+
 >> C6: During the eviction of a block from the cache, how are other
 >> processes prevented from attempting to access the block?
+
+See C5.
 
 ---- RATIONALE ----
 
 >> C7: Describe a file workload likely to benefit from buffer caching,
 >> and workloads likely to benefit from read-ahead and write-behind.
+
+Reading many small chunks from the same sector would benefit from caching.
+Writing many small chunks to the same sector would benefit from write-behind.
+Reading a file sequentially with heavy computation in between would benefit 
+from read-ahead.
 
                            SURVEY QUESTIONS
                            ================
