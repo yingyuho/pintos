@@ -163,7 +163,7 @@ void cache_init(void) {
 
   /* Start background services */
   thread_create("writed", PRI_DEFAULT, write_behind_daemon, NULL);
-  thread_create("readd", PRI_DEFAULT + 1, read_ahead_daemon, NULL);
+  thread_create("readd", PRI_MAX, read_ahead_daemon, NULL);
 }
 
 /* Find a cache slot to evict */
@@ -265,10 +265,12 @@ static int32_t get_cache(block_sector_t idx, struct cache_entry **ce) {
   } else {
  
     if (empty_list != -1) {
+      /* From empty list */
       *ce = &cache_header[blank()];
       old_sector = -1;
     }
     else {
+      /* Evict one */
       *ce = &cache_header[evict()];
       hash_delete(&cache_table, &(*ce)->elem);
       old_sector = (*ce)->sector;
@@ -400,6 +402,7 @@ void cache_close(void) {
 
   start = clock_hand; 
 
+  /* Loop the clock */
   do {
     ce = &cache_header[clock_hand];
 
@@ -434,6 +437,7 @@ static void write_behind_daemon(void *aux UNUSED) {
 
     start = clock_hand;
 
+    /* Loop the clock */
     do {
       ce = &cache_header[clock_hand];
 
@@ -474,6 +478,5 @@ static void read_ahead_daemon(void *aux UNUSED) {
 
     /* Load data from disk into cache by fake reading */
     cache_read(idx, 0, &dest, 0);
-    // printf("read_ahead_daemon\n");
   }
 }
