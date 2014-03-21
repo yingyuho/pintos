@@ -7,6 +7,7 @@
 #include "filesys/free-map.h"
 #include "filesys/cache.h"
 #include "threads/malloc.h"
+#include "threads/synch.h"
 
 /*! Identifies an inode. */
 /* This isn't actually used for anything, so I'm going to mangle it to
@@ -34,9 +35,11 @@ struct inode {
     struct list_elem elem;              /*!< Element in inode list. */
     block_sector_t sector;              /*!< Sector number of disk location. */
     int open_cnt;                       /*!< Number of openers. */
-    bool removed;                       /*!< True if deleted, false otherwise. */
+    bool removed
+;                       /*!< True if deleted, false otherwise. */
     int deny_write_cnt;                 /*!< 0: writes ok, >0: deny writes. */
     struct inode_disk data;             /*!< Inode content. */
+  struct lock extend_lock; // lock used to synchronize extends
 };
 
 // self-explanatory
@@ -56,7 +59,7 @@ static block_sector_t byte_to_sector(const struct inode *inode, off_t pos) {
       // corresponding sector into memory!
       block_sector_t tmp[128];
       block_sector_t map = inode->data.sectors[pos / (128 * BLOCK_SECTOR_SIZE)];
-      block_read(fs_device, map, &tmp);
+      block_read(fs_device, map, tmp);
       return tmp[(pos / BLOCK_SECTOR_SIZE) % 128];
     }
     else
@@ -172,6 +175,7 @@ struct inode * inode_open(block_sector_t sector) {
     inode->open_cnt = 1;
     inode->deny_write_cnt = 0;
     inode->removed = false;
+    lock_init(&inode->extend_lock);
     block_read(fs_device, inode->sector, &inode->data);
     return inode;
 }
@@ -215,7 +219,7 @@ void inode_close(struct inode *inode) {
 	      // Read the appropriate thing into memory
 	      block_sector_t tmp[128];
 	      block_sector_t map = inode->data.sectors[i];
-	      block_read(fs_device, map, &tmp);
+	      block_read(fs_device, map, tmp);
 	      for (j = 0; j < 128 && sectors; ++i, --sectors) {
 	        free_map_release(tmp[i], 1);
 	      }
@@ -285,6 +289,7 @@ off_t inode_write_at(struct inode *inode, const void *buffer_, off_t size, off_t
     if (inode->deny_write_cnt)
         return 0;
 
+    lock_acquire(&inode->extend_lock);
     if (offset + size > inode->data.length) {
       // Extend the file appropriately
 
@@ -344,6 +349,7 @@ off_t inode_write_at(struct inode *inode, const void *buffer_, off_t size, off_t
       // writing data)
       block_write(fs_device, inode->sector, &inode->data);
     }
+    lock_release(&inode->extend_lock);
 
     while (size > 0) {
         /* Sector to write, starting byte offset within sector. */

@@ -5,6 +5,7 @@
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
+#include "threads/synch.h"
 
 /*! A directory. */
 struct dir {
@@ -35,6 +36,7 @@ struct inode {
 ;                       /*!< True if deleted, false otherwise. */
     int deny_write_cnt;                 /*!< 0: writes ok, >0: deny writes. */
     struct inode_disk data;             /*!< Inode content. */
+  struct lock extend_lock; // lock used to synchronize extends
 };
 
 /*! Creates a directory with space for ENTRY_CNT entries in the
@@ -157,6 +159,8 @@ bool dir_add(struct dir *dir, const char *name, block_sector_t inode_sector) {
     if (*name == '\0' || strlen(name) > NAME_MAX)
         return false;
 
+    lock_acquire(&dir->inode->extend_lock);
+
     /* Check that NAME is not in use. */
     if (lookup(dir, name, NULL, NULL))
         goto done;
@@ -178,9 +182,12 @@ bool dir_add(struct dir *dir, const char *name, block_sector_t inode_sector) {
     e.in_use = true;
     strlcpy(e.name, name, sizeof e.name);
     e.inode_sector = inode_sector;
+    lock_release(&dir->inode->extend_lock);
     success = inode_write_at(dir->inode, &e, sizeof(e), ofs) == sizeof(e);
 
 done:
+    if (lock_held_by_current_thread(&dir->inode->extend_lock))
+      lock_release(&dir->inode->extend_lock);
     return success;
 }
 
@@ -199,6 +206,8 @@ bool dir_remove(struct dir *dir, const char *name) {
       return false; // Can't let you do that
     }
 
+    lock_acquire(&dir->inode->extend_lock);
+
     /* Find directory entry. */
     if (!lookup(dir, name, &e, &ofs))
         goto done;
@@ -216,6 +225,7 @@ bool dir_remove(struct dir *dir, const char *name) {
 	// Directory isn't empty
 	dir_close(d);
 	inode_close(inode);
+	lock_release(&dir->inode->extend_lock);
 	return false;
       }
       dir_close(d);
@@ -223,6 +233,7 @@ bool dir_remove(struct dir *dir, const char *name) {
 
     /* Erase directory entry. */
     e.in_use = false;
+    lock_release(&dir->inode->extend_lock);
     if (inode_write_at(dir->inode, &e, sizeof(e), ofs) != sizeof(e))
         goto done;
 
@@ -231,6 +242,8 @@ bool dir_remove(struct dir *dir, const char *name) {
     success = true;
 
 done:
+    if (lock_held_by_current_thread(&dir->inode->extend_lock))
+      lock_release(&dir->inode->extend_lock);
     inode_close(inode);
     return success;
 }

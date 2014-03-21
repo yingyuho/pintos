@@ -47,6 +47,10 @@ struct inode_disk {
     unsigned magic; // used to identify directories
 };
 
+struct inode {
+  struct lock extend_lock; // lock used to synchronize extends
+}
+
 >> A2: What is the maximum size of a file supported by your inode
 >> structure?  Show your work.
 
@@ -56,6 +60,8 @@ struct inode_disk {
 
 >> A3: Explain how your code avoids a race if two processes attempt to
 >> extend a file at the same time.
+
+Via a lock in the in-memory inode.
 
 >> A4: Suppose processes A and B both have file F open, both
 >> positioned at end-of-file.  If A reads and B writes F at the same
@@ -119,13 +125,19 @@ distinction is made by the functions that do the traversal).
 >> should succeed, as should only one of two simultaneous attempts to
 >> create a file with the same name, and so on.
 
+They are synchronized using the underlying inode's extension lock.
+(We can't use a lock in the struct dir, because a new one will
+be made every time you reopen it)
+
 >> B5: Does your implementation allow a directory to be removed if it
 >> is open by a process or if it is in use as a process's current
 >> working directory?  If so, what happens to that process's future
 >> file system operations?  If not, how do you prevent it?
 
 It is allowed; the relevant file system operations check whether
-the underlying inode has been removed.
+the underlying inode has been removed (dir_open() for example will
+return null, and most of the other operations call reopen() on
+the provided struct dir* so they will get null pointers).
 
 ---- RATIONALE ----
 
